@@ -1,0 +1,74 @@
+---
+
+- name: copy certbot-renew.sh
+  ansible.builtin.copy:
+    src: multidomain-certbot-renew.sh
+    dest: /bin/multidomain-certbot-renew.sh
+    mode: 0750
+
+- name: create certbot-renew.rc
+  ansible.builtin.template:
+    src: certbot-renew.rc.j2
+    dest: /etc/certbot/renew.rc
+    mode: "0640"
+
+- name: create certbot-renew.rc
+  ansible.builtin.template:
+    src: etc/certbot/certbot-renew.yml.j2
+    dest: /etc/certbot/renew.yml
+    mode: "0640"
+
+- name: create multi domain config files
+  domain_config_files:
+    certificates: "{{ multi_certbot_tls_certificates }}"
+    path: /etc/certbot/domains
+    mode: "0640"
+  when:
+    - multi_certbot_tls_certificates | default([]) | count > 0
+
+- name: remove old cronjob for certbot renew
+  ansible.builtin.file:
+    state: absent
+    path: /etc/cron.d/certbot
+
+- name: support systemd
+  when:
+    - ansible_service_mgr == 'systemd'
+  block:
+    - name: remove systemd {{ multi_certbot_systemd.service_name.timer }}
+      ansible.builtin.file:
+        state: absent
+        path: "/etc/systemd/system/timers.target.wants/{{ multi_certbot_systemd.service_name.timer }}"
+      when:
+        - not multi_certbot_systemd.use_timer
+
+    - name: create overwrite directory for {{ multi_certbot_systemd.service_name.service }}
+      ansible.builtin.file:
+        state: directory
+        path: "/etc/systemd/system/{{ multi_certbot_systemd.service_name.service }}.d"
+        mode: 0750
+
+    - name: create overwrite.conf for systemd
+      ansible.builtin.template:
+        src: etc/init/systemd/overwrite.conf.j2
+        dest: "/etc/systemd/system/{{ multi_certbot_systemd.service_name.service }}.d/overwrite.conf"
+        mode: 0644
+      notify:
+        - daemon reload
+        - restart {{ multi_certbot_systemd.service_name.timer }}
+
+- name: support sysv
+  when:
+    - ansible_service_mgr != 'systemd' or
+      not multi_certbot_systemd.use_timer
+  block:
+    - name: create new cronjob to renew certificates
+      ansible.builtin.cron:
+        name: "certbot renew"
+        minute: '0'
+        hour: '23'
+        user: root
+        job: /bin/multidomain-certbot-renew.sh
+        cron_file: multidomain-certbot
+
+...

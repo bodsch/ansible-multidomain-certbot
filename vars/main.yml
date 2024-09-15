@@ -1,0 +1,16 @@
+---
+
+multi_certbot_requirements:
+  - bc
+
+multi_certbot_system:
+  user: www-data
+  group: www-data
+
+multi_certbot_defaults_systemd:
+  use_timer: true
+  service_name:
+    timer: certbot.timer
+    service: certbot.service
+
+...

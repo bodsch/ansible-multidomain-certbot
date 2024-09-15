@@ -1,0 +1,34 @@
+#jinja2: trim_blocks: True, lstrip_blocks: True
+---
+# {{ ansible_managed }}
+
+certbot:
+  domains:
+{% for domain in multi_certbot_tls_certificates %}
+    - {{ domain.get('domain') }}
+{#
+  {% if domain.get('subdomains') %}
+    {% set _subdomains = domain.get('subdomains') %}
+    {% if _subdomains | bodsch.core.type == "str" %}
+      {% set _subdomains = [_subdomains] %}
+    {% endif %}
+      subdomains:
+    {% for subdomain in _subdomains %}
+        - {{ subdomain }}
+    {% endfor %}
+  {% endif %}
+#}
+{% endfor %}
+{#
+  {{ multi_certbot_tls_certificates | to_nice_yaml(indent=2,sort_keys=False) | indent(4, first=False) }}
+#}
+  conf_dir: {{ multi_certbot_conf_directory }}
+  acme_dir: {{ multi_certbot_www_directory | default('/var/www/certbot') }}
+  cert_name: ""
+  # cert_file: {{ multi_certbot_conf_directory }}/live/${CERTBOT_CERT_NAME}/fullchain.pem
+  rsa_key_size: {{ multi_certbot_rsa_key_size }}
+  email: {{ multi_certbot_email }}
+  opts: []
+  expand: false
+  expire_days_limit: 28
+  reload_webservice: false

@@ -1,0 +1,28 @@
+---
+
+- name: daemon reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+    force: true
+  when:
+    - ansible_service_mgr == 'systemd'
+
+- name: reload certbot
+  listen: reload {{ multi_certbot_systemd.service_name.timer }}
+  ansible.builtin.service:
+    name: "{{ multi_certbot_systemd.service_name.timer }}"
+    state: reloaded
+  when:
+    - ansible_service_mgr == 'systemd'
+    - multi_certbot_systemd.use_timer
+
+- name: restart certbot
+  listen: restart {{ multi_certbot_systemd.service_name.timer }}
+  ansible.builtin.service:
+    name: "{{ multi_certbot_systemd.service_name.timer }}"
+    state: restarted
+  when:
+    - ansible_service_mgr == 'systemd'
+    - multi_certbot_systemd.use_timer
+
+...

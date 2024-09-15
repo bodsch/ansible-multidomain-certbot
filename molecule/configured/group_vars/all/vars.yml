@@ -1,0 +1,23 @@
+---
+
+multi_certbot_tls_certificates:
+  - domain: zweit-hirn.lan
+    subdomains: www.zweit-hirn.lan
+  - domain: haus-der-schmerzen.lan
+    subdomains:
+      - anouk.haus-der-schmerzen.lan
+      - assets.haus-der-schmerzen.lan
+      - files.haus-der-schmerzen.lan
+      - www.haus-der-schmerzen.lan
+  - domain: boone-schulz.lan
+    subdomains:
+      - arch.boone-schulz.lan
+      - cloud.boone-schulz.lan
+      - mirror.boone-schulz.lan
+      - office.boone-schulz.lan
+      - slides.boone-schulz.lan
+      - stage.boone-schulz.lan
+      - webmail.boone-schulz.lan
+      - www.boone-schulz.lan
+
+...
