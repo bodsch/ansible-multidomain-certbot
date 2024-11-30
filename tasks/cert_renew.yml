@@ -6,6 +6,12 @@
     dest: /bin/multidomain-certbot-renew.sh
     mode: 0750
 
+- name: copy certbot-renew.py
+  ansible.builtin.copy:
+    src: multidomain-certbot-renew.py
+    dest: /bin/multidomain-certbot-renew.py
+    mode: 0750
+
 - name: create certbot-renew.rc
   ansible.builtin.template:
     src: certbot-renew.rc.j2

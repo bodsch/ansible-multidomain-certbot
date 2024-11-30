@@ -12,11 +12,13 @@
     path: /etc/certbot/domains
     mode: "0750"
 
-- name: merge certbot configuration between defaults and custom
-  ansible.builtin.set_fact:
-    multi_certbot_systemd: "{{ multi_certbot_defaults_systemd |
-      combine( multi_certbot_systemd, recursive=True ) }}"
+# - name: merge certbot configuration between defaults and custom
+#   ansible.builtin.set_fact:
+#     multi_certbot_systemd: "{{ multi_certbot_defaults_systemd |
+#       combine( multi_certbot_systemd, recursive=True ) }}"
 
+# TODO
+# only for nginx support
 - name: ensure that ssl-dhparams.pem is present
   ansible.builtin.stat:
     path: "{{ multi_certbot_conf_directory }}/ssl-dhparams.pem"
@@ -50,6 +52,7 @@
     group: "{{ multi_certbot_system.group }}"
     mode: "0777"
     recurse: true
+# -----------------------------------------------------------------------------
 
 - name: ensure that domain certificates are present
   domain_certs:
