@@ -111,17 +111,19 @@ class RenewCertificates():
 
         running = self._test_running_webserver()
 
-        for domain in self.config_domains:
+        if self.config_domains is not None and len(self.config_domains) > 0:
 
-            working_well_known = self._validate_well_known(domain)
+            for domain in self.config_domains:
 
-            if working_well_known:
-                self._diff_domains(domain)
+                working_well_known = self._validate_well_known(domain)
 
-                should_be_renewd = self.check_renew_certificates(domain)
+                if working_well_known:
+                    self._diff_domains(domain)
 
-                if should_be_renewd:
-                    self._renew_certificate(domain=domain)
+                    should_be_renewd = self.check_renew_certificates(domain)
+
+                    if should_be_renewd:
+                        self._renew_certificate(domain=domain)
 
 
     def read_config(self):

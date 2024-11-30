@@ -2,6 +2,7 @@
 
 multi_certbot_requirements:
   - bc
+  - python-yaml
 
 multi_certbot_system:
   user: www-data
