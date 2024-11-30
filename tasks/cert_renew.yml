@@ -35,6 +35,11 @@
   when:
     - ansible_service_mgr == 'systemd'
   block:
+
+    - name: merge multi_certbot_systemd configuration between defaults and custom
+      ansible.builtin.set_fact:
+        multi_certbot_systemd: "{{ multi_certbot_defaults_systemd | combine(multi_certbot_systemd, recursive=True) }}"
+
     - name: remove systemd {{ multi_certbot_systemd.service_name.timer }}
       ansible.builtin.file:
         state: absent
