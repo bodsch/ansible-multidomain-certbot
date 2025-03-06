@@ -109,21 +109,47 @@ class RenewCertificates():
 
         self.current_certificates = self._current_certificates()
 
+        if self.args.list:
+            self.print_current_certs()
+
+        working_well_known = dict()
+
         running = self._test_running_webserver()
+        running = True
 
-        if self.config_domains is not None and len(self.config_domains) > 0:
+        if running:
+            working_well_known = self.validate_well_known()
 
-            for domain in self.config_domains:
+        if len(working_well_known) > 0:
+            working_domains = [k for k,v in working_well_known.items() if v]
 
-                working_well_known = self._validate_well_known(domain)
+            self.logger.info("Check whether the certificates need to be renewed.")
 
-                if working_well_known:
-                    self._diff_domains(domain)
+            for domain in working_domains:
+                self.logger.info(f"- {domain}")
 
-                    should_be_renewd = self.check_renew_certificates(domain)
+                self._diff_domains(domain)
+                should_be_renewd = self.check_renew_certificates(domain)
 
-                    if should_be_renewd:
-                        self._renew_certificate(domain=domain)
+                if should_be_renewd:
+                    self._renew_certificate(domain=domain)
+
+        # if self.config_domains is not None and len(self.config_domains) > 0:
+        #
+        #
+        #         for domain in self.config_domains:
+        #
+        #             working_well_known = self._validate_well_known(domain)
+        #
+        #             if working_well_known:
+        #                 self._diff_domains(domain)
+        #
+        #                 should_be_renewd = self.check_renew_certificates(domain)
+        #
+        #                 if should_be_renewd:
+        #                     self._renew_certificate(domain=domain)
+        #     else:
+        #         pass
 
 
     def read_config(self):
@@ -154,12 +180,16 @@ class RenewCertificates():
     def check_renew_certificates(self, domain):
         """
         """
-        self.logger.info(domain)
+        self.logger.debug(f"check_renew_certificates({domain})")
+        self.logger.debug(self.current_certificates)
+
+        if len(self.current_certificates) == 0:
+            return True
 
         domain_data = self.current_certificates.get(domain)
         cert_expire = domain_data.get('expire', 0)
 
-        self.logger.info(domain_data)
+        self.logger.debug(domain_data)
         self.logger.info(f"  expire in {cert_expire} days")
 
         _domains = []
@@ -167,15 +197,31 @@ class RenewCertificates():
         if cert_expire <= self.config_expire_days_limit:
             return True
         else:
-            self.logger.info(f"nothing to do, cert is up to day. renewal in { cert_expire - self.config_expire_days_limit } days.")
+            self.logger.info("  There is nothing to do, the certificate is currently up to date.")
+
+            msg = None
+            should_renewed_in = cert_expire - self.config_expire_days_limit
+
+            if int(should_renewed_in) < 0:
+                msg = "  The certificate must be renewed immediately!"
+            if int(should_renewed_in) > 4 and int(should_renewed_in) < self.config_expire_days_limit:
+                msg = f"  The certificate will be renewed in {should_renewed_in} days."
+
+            if msg:
+                self.logger.info(msg)
+            # self.logger.info(f"cert should by renewal in {cert_expire - self.config_expire_days_limit} days.")
             return False
 
     def _renew_certificate(self, domain):
         """
         """
+        self.logger.debug(f"_renew_certificate({domain})")
+
         _domain_list = self.read_domains_from_config(domain)
         _domains = "--domain "
         _domains += " --domain ".join(_domain_list)
+
+        self.logger.debug(_domain_list)
 
         opts = self.__define_certbot_opts(domain=domain, expand=self.expand)
 
@@ -190,7 +236,7 @@ class RenewCertificates():
 
         args.append(_domains)
 
-        self.logger.info(f"{args}")
+        # self.logger.info(f"{args}")
 
         # master_in_fd, slave_in_fd = pty.openpty()
         # master_out_fd, slave_out_fd = pty.openpty()
@@ -212,7 +258,11 @@ class RenewCertificates():
 
         import shlex
         command = shlex.split(cmd)
-        self.logger.info(f"{command} / {type(command)}")
+        self.logger.info(f"  {command}")
+
+        if self.args.dry_run:
+            self.logger.info(f"run in dry-run ..")
+            return
 
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         stdout, stderr = process.communicate()
@@ -229,9 +279,11 @@ class RenewCertificates():
     def read_domains_from_config(self, domain):
         """
         """
+        self.logger.debug(f"read_domains_from_config({domain})")
+
         data = None
 
-        config_path = os.path.join(self.config_base_path, f"{domain}.yml")
+        config_file = os.path.join(self.config_base_path, f"{domain}.yml")
 
         if os.path.exists(config_file):
             with open(config_file, "r") as stream:
@@ -244,6 +296,12 @@ class RenewCertificates():
             return data.get('domains', [])
         else:
             return []
+
+    def print_current_certs(self):
+
+        if self.current_certificates:
+            self.logger.info(json.dumps(self.current_certificates, sort_keys=False, indent=2))
+
 
     def _current_certificates(self):
         """
@@ -285,7 +343,7 @@ class RenewCertificates():
                             "alt_names": alt_names
                             })
 
-        self.logger.info(json.dumps(result, sort_keys=False, indent=2))
+        self.logger.debug(json.dumps(result, sort_keys=False, indent=2))
 
         return result
 
@@ -298,38 +356,69 @@ class RenewCertificates():
 
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             if sock.connect_ex((host, port)) == 0:
-                self.logger.debug("Port is open")
+                # self.logger.debug("Port is open")
                 return True
             else:
-                self.logger.debug("Port is not open")
+                self.logger.debug("Port {port} on {host} is not open")
                 return False
 
-    def _validate_well_known(self, domain):
+    def validate_well_known(self):
+        """
+        """
+        result = dict()
+
+        if self.config_domains is not None and len(self.config_domains) > 0:
+            for domain in self.config_domains:
+                result[domain] = self._well_known_request(domain)
+
+        self.logger.debug(f" = {result}")
+
+        return result
+
+
+    def _well_known_request(self, domain):
         """
         """
         import uuid
         import requests
 
-        result = {}
+        http_staus_code = None
 
-        # config_base_path = "/etc/certbot/domains"
+        result = False
 
-        result[domain] = False
-        config_path = os.path.join(self.config_base_path, f"{domain}.yml")
+        config_file = os.path.join(self.config_base_path, f"{domain}.yml")
 
-        if os.path.exists(config_path):
+        if os.path.exists(config_file):
+            self.logger.info(f"Validate .well-known/acme-challenge for domain: {domain}")
             _uid = str(uuid.uuid4())
             uuid_file = os.path.join(self.certbot_acme_directory, ".well-known/acme-challenge", _uid)
             domain_challenge = f"http://{domain}/.well-known/acme-challenge/{_uid}"
 
             open(uuid_file, mode='a').close()
 
-            x = requests.get(domain_challenge)
+            try:
+                x = requests.get(domain_challenge, timeout=3)
+                # requests.raise_for_status()
+                http_staus_code = x.status_code
+                # self.logger.info(f"   {domain} with status code: {http_staus_code}")
 
-            self.logger.info(f"   {domain} with status code: {x.status_code}")
+            except requests.exceptions.HTTPError as errh:
+                 self.logger.error(f"Http Error : {errh}")
+            except requests.exceptions.ConnectionError as errc:
+                 self.logger.error(f"Error Connecting : {errc}")
+            except requests.exceptions.Timeout as errt:
+                 self.logger.error(f"Timeout Error : {errt}")
+            except requests.exceptions.TooManyRedirects as error:
+                # Tell the user their URL was bad and try a different one
+                self.logger.error(f"Too many redirects: '{error}'")
+            except requests.exceptions.RequestException as err:
+                 self.logger.error(f"OOps: Something Else: {err}")
 
-            if x.status_code == 200:
-                result[domain] = True
+            if http_staus_code and int(http_staus_code) == 200:
+                self.logger.info("  - success")
+                result = True
+            else:
+                self.logger.info("  - failed")
 
             try:
                 os.remove(uuid_file)
@@ -344,11 +433,17 @@ class RenewCertificates():
     def _diff_domains(self, domain):
         """
         """
+        self.logger.debug(f"::_diff_domains({domain})")
+
         data = None
+        _cert =[]
         self.logger.debug(self.current_certificates)
         self.logger.debug(self.config_domains)
 
         config_path = os.path.join(self.config_base_path, f"{domain}.yml")
+
+        self.logger.debug(f"  config file: {config_path}")
+
         if os.path.exists(config_path):
             with open(config_path, "r") as stream:
                 try:
@@ -356,13 +451,18 @@ class RenewCertificates():
                 except yaml.YAMLError as exc:
                     self.logger.error(f"  ERROR : '{exc}'")
 
-        # self.logger.debug(f"{data}")
+        self.logger.debug(f"  data: {data}")
 
-        _domains = sorted(data.get("domains"))
-        _cert   = sorted(self.current_certificates.get(domain).get("alt_names"))
+        _domains = data.get("domains", [])
+        _domains = sorted(_domains)
 
-        # self.logger.debug(f" - {_domains} - {type(_domains)}")
-        # self.logger.debug(f" - {_cert} - {type(_cert)}")
+        self.logger.debug(f"  domains: {_domains}")
+
+        if self.current_certificates:
+            _cert    = sorted(self.current_certificates.get(domain, {}).get("alt_names"))
+
+        self.logger.debug(f" - {_domains} - {type(_domains)}")
+        self.logger.debug(f" - {_cert} - {type(_cert)}")
 
         diff = list(set(_domains) - set(_cert))
 
