@@ -20,4 +20,12 @@ multi_certbot_tls_certificates:
       - webmail.boone-schulz.lan
       - www.boone-schulz.lan
 
+multi_certbot_notification:
+  enabled: true
+  smtp:
+    server_name: smtp.example.com
+    port: 587
+  sender: certbot@example.com
+  recipient: admin@foo.bar
+
 ...

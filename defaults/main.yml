@@ -1,8 +1,27 @@
 ---
 
-multi_certbot_conf_directory: /etc/letsencrypt
+multi_certbot_config:
+  conf_directory: /etc/letsencrypt
+  rsa_key_size: 4096
+  www_directory: /var/www/certbot
+  well_known_directory: /var/www/certbot/.well-known/acme-challenge
+  email: pki@test.com
 
 multi_certbot_tls_certificates: []
+#  - domain: foo.bar
+#    subdomains: www.foo.bar
+#  - domain: foo-foo.bar
+#    subdomains:
+#      - www.foo-foo.bar
+#      - assets.foo-foo.bar
+
+multi_certbot_notification:
+  enabled: false
+  smtp:
+    server_name: ""             # smtp.example.com
+    port: ""                    # 587
+  sender: ""                    # backup@example.com
+  recipient: ""                 # admin@foo.bar
 
 multi_certbot_dry_run: true
 
@@ -15,11 +34,5 @@ multi_certbot_systemd: {}
 multi_certbot_staging_args:
   - --test-cert
   - --dry-run
-
-multi_certbot_email: "pki@test.com"
-multi_certbot_www_directory: /var/www/certbot
-multi_certbot_well_known_directory: "{{ multi_certbot_www_directory }}/.well-known/acme-challenge"
-
-multi_certbot_rsa_key_size: 4096
 
 ...

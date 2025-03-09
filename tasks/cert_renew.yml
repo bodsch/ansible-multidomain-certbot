@@ -66,7 +66,7 @@
         mode: 0644
       notify:
         - daemon reload
-        - restart {{ multi_certbot_systemd.service_name.timer }}
+        - restart certbot.timer
 
 - name: support sysv
   when:

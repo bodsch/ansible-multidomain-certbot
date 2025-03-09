@@ -21,7 +21,7 @@
 # only for nginx support
 - name: ensure that ssl-dhparams.pem is present
   ansible.builtin.stat:
-    path: "{{ multi_certbot_conf_directory }}/ssl-dhparams.pem"
+    path: "{{ multi_certbot_config.conf_directory }}/ssl-dhparams.pem"
   register: dhparams_exists
 
 - name: Downloading recommended TLS parameters ...
@@ -30,7 +30,7 @@
     - not dhparams_exists.stat.exists
   ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/certbot/certbot/master/{{ item }}"
-    dest: "{{ multi_certbot_conf_directory }}/{{ item | basename }}"
+    dest: "{{ multi_certbot_config.conf_directory }}/{{ item | basename }}"
     mode: "0444"
   loop:
     - certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf
@@ -39,7 +39,7 @@
 - name: create well-known directory
   ansible.builtin.file:
     state: directory
-    path: "{{ multi_certbot_well_known_directory }}"
+    path: "{{ multi_certbot_config.well_known_directory }}"
     owner: "{{ multi_certbot_system.user }}"
     group: "{{ multi_certbot_system.group }}"
     mode: "0777"
@@ -47,7 +47,7 @@
 - name: fix rights for well-known directory
   ansible.builtin.file:
     state: directory
-    path: "{{ multi_certbot_www_directory }}"
+    path: "{{ multi_certbot_config.www_directory }}"
     owner: "{{ multi_certbot_system.user }}"
     group: "{{ multi_certbot_system.group }}"
     mode: "0777"
@@ -56,7 +56,7 @@
 
 - name: ensure that domain certificates are present
   domain_certs:
-    path: "{{ multi_certbot_conf_directory }}/live"
+    path: "{{ multi_certbot_config.conf_directory }}/live"
     file: fullchain.pem
     certificates: "{{ multi_certbot_tls_certificates }}"
   register: domain_certificates_exists
@@ -79,11 +79,11 @@
   certbot:
     state: certonly
     arguments: "{{ multi_certbot_staging_args | default([]) }}"
-    webroot_path: "{{ multi_certbot_www_directory }}"
-    rsa_key_size: "{{ multi_certbot_rsa_key_size | int }}"
+    webroot_path: "{{ multi_certbot_config.www_directory }}"
+    rsa_key_size: "{{ multi_certbot_config.rsa_key_size | int }}"
     domains: "{{ multi_certbot_tls_certificates }}"
-    certbot_base_directory: "{{ multi_certbot_conf_directory }}"
-    email: "{{ multi_certbot_email }}"
+    certbot_base_directory: "{{ multi_certbot_config.conf_directory }}"
+    email: "{{ multi_certbot_config.email }}"
   register: create_certificates
   when:
     - multi_certbot_tls_certificates is defined
