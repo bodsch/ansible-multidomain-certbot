@@ -32,3 +32,11 @@ certbot:
   expand: false
   expire_days_limit: 28
   reload_services: false
+
+notification:
+  enabled: false
+  smtp:
+    server_name: ""             # smtp.example.com
+    port: ""                    # 587
+  sender: ""                    # backup@example.com
+  recipient: ""                 # admin@foo.bar

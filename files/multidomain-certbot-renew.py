@@ -3,14 +3,17 @@
 
 from __future__ import absolute_import, print_function
 import os
+import sys
+import time
 import json
 import yaml
-import configparser
+# import configparser
 import argparse
 import logging
 import datetime
 import subprocess
-import pty
+# import pty
+import socket
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -18,6 +21,7 @@ from cryptography.hazmat.backends import default_backend
 """
 https://www.programcreek.com/python/example/102802/cryptography.x509.load_der_x509_certificate
 """
+
 
 class bcolors:
     HEADER = '\033[95m'
@@ -29,6 +33,28 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+
+class MemoryLogHandler(logging.Handler):
+    """
+        Speichert Log-Meldungen in einer internen Liste
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.log_messages = []
+
+    def emit(self, record):
+        """Fügt eine formatierte Log-Nachricht der Liste hinzu"""
+        if record.levelno >= logging.INFO:  # Speichert nur INFO und höher (kein DEBUG)
+            # log_entry = self.format(record)
+            log_entry = record.getMessage()  # Holt nur die reine Log-Nachricht
+            self.log_messages.append(log_entry)
+
+    def get_logs(self):
+        """Gibt alle Logs als String zurück"""
+        return "\n".join(self.log_messages)
+
 
 class RenewCertificates():
     """
@@ -42,70 +68,99 @@ class RenewCertificates():
 
         self.logger = logging.getLogger('certbot-renew')
         self.logger.setLevel(logging.DEBUG)
+        self.log_level = self.args.log_level
 
-        # create file handler which logs even debug messages
-        fh = logging.FileHandler('certbot-renew.log')
-        fh.setLevel(logging.DEBUG)
+        self.log_memory_handler = MemoryLogHandler()
+        self.setup_logging()
 
-        # create console handler with a higher log level
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-
-        # create formatter and add it to the handlers
-        formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)s: %(message)s')
-
-        fh.setFormatter(formatter)
-        ch.setFormatter(formatter)
-        # add the handlers to the logger
-        # self.logger.addHandler(fh)
-        self.logger.addHandler(ch)
+        self.datetime = time.strftime('%Y%m%d-%H%M')
+        self.datetime_readable = time.strftime("%Y-%m-%d")
 
         self.read_config()
-
         self.certbot_acme_directory = self.config_acme_dir
-
-        print("--------------------------------------------------")
-        print(f" config file    : {self.args.config}")
-        print(f" directory      : {self.args.directory}")
-        print(f" list           : {self.args.list}")
-        print(f" dry-run        : {self.args.dry_run}")
-        print("--------------------------------------------------")
-
-        #
 
     def parse_args(self):
         p = argparse.ArgumentParser(description='renew certbot certicates')
 
         p.add_argument(
             "-C", "--config",
-            required = False,
-            default = "/etc/certbot/renew.yml",
-            help = "configuration file")
+            required=False,
+            default="/etc/certbot/renew.yml",
+            help="configuration file")
 
         p.add_argument(
             "-D", "--directory",
-            required = False,
-            default = "/etc/letsencrypt/live",
-            help = "located certificates")
+            required=False,
+            default="/etc/letsencrypt/live",
+            help="located certificates")
 
         p.add_argument(
             "-L", "--list",
-            required = False,
+            required=False,
             action='store_true',
-            help = "list certificates")
+            help="list certificates")
 
         p.add_argument(
             "--dry-run",
-            required = False,
+            required=False,
             action='store_true',
-            help = "do nothing")
+            help="do nothing")
+
+        p.add_argument(
+            "--log-level",
+            type=str,
+            default="INFO",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            help="Setzt das Log-Level (default: INFO)")
 
         self.args = p.parse_args()
+
+    def setup_logging(self):
+        """
+            Konfiguriert das Logging mit dem gegebenen Log-Level.
+        """
+        log_level_numeric = getattr(
+            logging, self.log_level)  # Umwandlung von Text in Level
+        # DEBUG-Format (kurzer Zeitstempel)
+        debug_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s", "%H:%M:%S")
+
+        # Standard-Format für INFO+ (langer Zeitstempel)
+        standard_formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s", "%Y-%m-%d %H:%M:%S")
+
+        # Datei-Logging (speichert ALLE Logs mit passendem Format)
+        file_handler = logging.FileHandler("/var/log/certbot-renew.log")
+        file_handler.setLevel(log_level_numeric)
+        file_handler.setFormatter(
+            debug_formatter if log_level_numeric == logging.DEBUG else standard_formatter)
+
+        # Konsolen-Logging (INFO und höher)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(standard_formatter)
+
+        # Memory-Logging (für E-Mail, speichert NUR die reine Nachricht)
+        self.log_memory_handler.setLevel(logging.INFO)
+
+        # Logger abrufen und Handler hinzufügen
+        logger = logging.getLogger()
+        logger.setLevel(log_level_numeric)
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        logger.addHandler(self.log_memory_handler)
 
     def run(self):
         """
         """
-        pass
+        logging.info(f"Renew multiple TLS certificates via certbot at {self.datetime_readable} ...")
+
+        logging.debug("--------------------------------------------------")
+        logging.debug(f" config file    : {self.args.config}")
+        logging.debug(f" directory      : {self.args.directory}")
+        # logging.debug(f" list           : {self.args.list}")
+        # logging.debug(f" dry-run        : {self.args.dry_run}")
+        logging.debug("--------------------------------------------------")
 
         self.current_certificates = self._current_certificates()
 
@@ -121,36 +176,20 @@ class RenewCertificates():
             working_well_known = self.validate_well_known()
 
         if len(working_well_known) > 0:
-            working_domains = [k for k,v in working_well_known.items() if v]
+            working_domains = [k for k, v in working_well_known.items() if v]
 
-            self.logger.info("Check whether the certificates need to be renewed.")
+            logging.info("Check whether the certificates need to be renewed.")
 
             for domain in working_domains:
-                self.logger.info(f"- {domain}")
+                logging.info(f"- {domain}")
 
                 self._diff_domains(domain)
                 should_be_renewd = self.check_renew_certificates(domain)
 
                 if should_be_renewd:
-                    self._renew_certificate(domain=domain)
+                    _ = self._renew_certificate(domain=domain)
 
-        # if self.config_domains is not None and len(self.config_domains) > 0:
-        #
-        #
-        #         for domain in self.config_domains:
-        #
-        #             working_well_known = self._validate_well_known(domain)
-        #
-        #             if working_well_known:
-        #                 self._diff_domains(domain)
-        #
-        #                 should_be_renewd = self.check_renew_certificates(domain)
-        #
-        #                 if should_be_renewd:
-        #                     self._renew_certificate(domain=domain)
-        #     else:
-        #         pass
-
+        logging.info("done ...\n")
 
     def read_config(self):
         """
@@ -162,12 +201,14 @@ class RenewCertificates():
         self.config_expire_days_limit = 20
         self.config_rsa_key_size = 4096
 
+        self.notification_enabled = False
+
         if os.path.isfile(self.args.config):
             with open(self.args.config, "r") as stream:
                 try:
                     data = yaml.safe_load(stream)
                 except yaml.YAMLError as exc:
-                    self.logger.error(f"  ERROR : '{exc}'")
+                    logging.error(f"  ERROR : '{exc}'")
 
         if data:
             self.config_domains = data.get('certbot', {}).get('domains', [])
@@ -176,28 +217,38 @@ class RenewCertificates():
             self.config_rsa_key_size = data.get('certbot', {}).get('rsa_key_size', 4096)
             self.config_email = data.get('certbot', {}).get('email', 4096)
 
+            notification = data.get("notification", {})
+
+            if notification:
+                self.notification_enabled = notification.get(
+                    "enabled", False)
+                self.notification_smtp_host = notification.get(
+                    "smtp", {}).get("server_name", None)
+                self.notification_smtp_port = notification.get(
+                    "smtp", {}).get("port", 587)
+                self.notification_sender = notification.get("sender", None)
+                self.notification_recipient = notification.get(
+                    "recipient", None)
 
     def check_renew_certificates(self, domain):
         """
         """
-        self.logger.debug(f"check_renew_certificates({domain})")
-        self.logger.debug(self.current_certificates)
+        # logging.debug(f"check_renew_certificates({domain})")
+        # logging.debug(self.current_certificates)
 
         if len(self.current_certificates) == 0:
             return True
 
         domain_data = self.current_certificates.get(domain)
+        logging.debug(domain_data)
+
         cert_expire = domain_data.get('expire', 0)
-
-        self.logger.debug(domain_data)
-        self.logger.info(f"  expire in {cert_expire} days")
-
-        _domains = []
+        logging.info(f"  expire in {cert_expire} days")
 
         if cert_expire <= self.config_expire_days_limit:
             return True
         else:
-            self.logger.info("  There is nothing to do, the certificate is currently up to date.")
+            logging.info("  There is nothing to do, the certificate is currently up to date.")
 
             msg = None
             should_renewed_in = cert_expire - self.config_expire_days_limit
@@ -208,20 +259,20 @@ class RenewCertificates():
                 msg = f"  The certificate will be renewed in {should_renewed_in} days."
 
             if msg:
-                self.logger.info(msg)
-            # self.logger.info(f"cert should by renewal in {cert_expire - self.config_expire_days_limit} days.")
+                logging.info(msg)
+
             return False
 
     def _renew_certificate(self, domain):
         """
         """
-        self.logger.debug(f"_renew_certificate({domain})")
+        # logging.debug(f"_renew_certificate({domain})")
 
         _domain_list = self.read_domains_from_config(domain)
         _domains = "--domain "
         _domains += " --domain ".join(_domain_list)
 
-        self.logger.debug(_domain_list)
+        logging.debug(_domain_list)
 
         opts = self.__define_certbot_opts(domain=domain, expand=self.expand)
 
@@ -236,7 +287,7 @@ class RenewCertificates():
 
         args.append(_domains)
 
-        # self.logger.info(f"{args}")
+        # logging.info(f"{args}")
 
         # master_in_fd, slave_in_fd = pty.openpty()
         # master_out_fd, slave_out_fd = pty.openpty()
@@ -258,10 +309,10 @@ class RenewCertificates():
 
         import shlex
         command = shlex.split(cmd)
-        self.logger.info(f"  {command}")
+        logging.debug(f"  run command: {command}")
 
         if self.args.dry_run:
-            self.logger.info(f"run in dry-run ..")
+            logging.info("run in dry-run ..")
             return
 
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
@@ -269,17 +320,17 @@ class RenewCertificates():
         rc = process.returncode
 
         if rc == 0:
-            self.logger.info(f"{stdout}")
+            logging.info(f"{stdout}")
+            return True
         else:
-          self.logger.error(f"{str(stdout)}")
-          self.logger.error(f"{stderr}")
-
-        #self.logger.debug(process)
+            logging.error(f" - stdout: {str(stdout)}")
+            logging.error(f" - stderr: {stderr}")
+            return False
 
     def read_domains_from_config(self, domain):
         """
         """
-        self.logger.debug(f"read_domains_from_config({domain})")
+        logging.debug(f"read_domains_from_config({domain})")
 
         data = None
 
@@ -300,8 +351,49 @@ class RenewCertificates():
     def print_current_certs(self):
 
         if self.current_certificates:
-            self.logger.info(json.dumps(self.current_certificates, sort_keys=False, indent=2))
+            logging.info(json.dumps(self.current_certificates, sort_keys=False, indent=2))
 
+    def send_log_email(self):
+        """
+            Sendet die gespeicherten Logs per E-Mail.
+        """
+        import smtplib
+        from email.mime.text import MIMEText
+
+        email_body = self.log_memory_handler.get_logs()
+        subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
+
+        logging.debug("sending email")
+        logging.debug(f"  - from   : {self.notification_sender}")
+        logging.debug(f"  - to     : {self.notification_recipient}")
+        logging.debug(f"  - subject: {subject}")
+        logging.debug("  - body   :")
+        for line in email_body.splitlines():
+            logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
+
+        if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
+            """
+            """
+            msg = MIMEText(email_body)
+            msg["Subject"] = subject
+            msg["From"] = self.notification_sender
+            msg["To"] = self.notification_recipient
+
+            try:
+                with smtplib.SMTP("smtp.example.com", 587) as server:
+                    server.starttls()
+                    server.login("deine@email.com", "dein_passwort")
+                    server.sendmail(
+                        self.notification_sender,
+                        self.notification_recipient,
+                        msg.as_string()
+                    )
+                logging.info("email was successfully sent.")
+            except Exception as e:
+                logging.error("Fehler beim Senden der E-Mail:")
+                logging.error(f"  {e}")
+        else:
+            logging.error("missing smtp server_nemr, or sender, or recipient.")
 
     def _current_certificates(self):
         """
@@ -311,7 +403,7 @@ class RenewCertificates():
             }
         """
         alt_names = []
-        result={}
+        result = {}
 
         dateformat = "%d.%m.%Y"
 
@@ -324,26 +416,26 @@ class RenewCertificates():
                         cert_data = cert_content.read()
                         cert_decoded = x509.load_pem_x509_certificate(cert_data, default_backend())
 
-                        #print(cert_decoded.issuer)
+                        # print(cert_decoded.issuer)
 
                         subject = cert_decoded.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value.lower()
-                        hash_algorithm = cert_decoded.signature_hash_algorithm
+                        # hash_algorithm = cert_decoded.signature_hash_algorithm
 
                         SubjectAlternativeName = cert_decoded.extensions.get_extension_for_oid(x509.extensions.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
                         if SubjectAlternativeName:
                             alt_names = SubjectAlternativeName.value.get_values_for_type(x509.extensions.DNSName)
 
                         _valid_after = cert_decoded.not_valid_after_utc.strftime(dateformat)
-                        _now         = datetime.datetime.now(datetime.UTC).strftime(dateformat)
-                        expire        = (datetime.datetime.strptime(_valid_after, dateformat) - datetime.datetime.strptime(_now, dateformat)).days
+                        _now = datetime.datetime.now(datetime.UTC).strftime(dateformat)
+                        expire = (datetime.datetime.strptime(_valid_after, dateformat) - datetime.datetime.strptime(_now, dateformat)).days
 
                         result[subject] = {}
                         result[subject].update({
                             "expire": expire,
                             "alt_names": alt_names
-                            })
+                        })
 
-        self.logger.debug(json.dumps(result, sort_keys=False, indent=2))
+        logging.debug(json.dumps(result, sort_keys=False, indent=2))
 
         return result
 
@@ -356,10 +448,10 @@ class RenewCertificates():
 
         with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
             if sock.connect_ex((host, port)) == 0:
-                # self.logger.debug("Port is open")
+                # logging.debug("Port is open")
                 return True
             else:
-                self.logger.debug("Port {port} on {host} is not open")
+                logging.debug("Port {port} on {host} is not open")
                 return False
 
     def validate_well_known(self):
@@ -368,13 +460,14 @@ class RenewCertificates():
         result = dict()
 
         if self.config_domains is not None and len(self.config_domains) > 0:
+            logging.info("Validate .well-known/acme-challenge")
+
             for domain in self.config_domains:
                 result[domain] = self._well_known_request(domain)
 
-        self.logger.debug(f" = {result}")
+        logging.debug(f" = {result}")
 
         return result
-
 
     def _well_known_request(self, domain):
         """
@@ -389,7 +482,6 @@ class RenewCertificates():
         config_file = os.path.join(self.config_base_path, f"{domain}.yml")
 
         if os.path.exists(config_file):
-            self.logger.info(f"Validate .well-known/acme-challenge for domain: {domain}")
             _uid = str(uuid.uuid4())
             uuid_file = os.path.join(self.certbot_acme_directory, ".well-known/acme-challenge", _uid)
             domain_challenge = f"http://{domain}/.well-known/acme-challenge/{_uid}"
@@ -400,79 +492,79 @@ class RenewCertificates():
                 x = requests.get(domain_challenge, timeout=3)
                 # requests.raise_for_status()
                 http_staus_code = x.status_code
-                # self.logger.info(f"   {domain} with status code: {http_staus_code}")
+                # logging.info(f"   {domain} with status code: {http_staus_code}")
 
             except requests.exceptions.HTTPError as errh:
-                 self.logger.error(f"Http Error : {errh}")
+                logging.error(f"Http Error : {errh}")
             except requests.exceptions.ConnectionError as errc:
-                 self.logger.error(f"Error Connecting : {errc}")
+                logging.error(f"Error Connecting : {errc}")
             except requests.exceptions.Timeout as errt:
-                 self.logger.error(f"Timeout Error : {errt}")
+                logging.error(f"Timeout Error : {errt}")
             except requests.exceptions.TooManyRedirects as error:
                 # Tell the user their URL was bad and try a different one
-                self.logger.error(f"Too many redirects: '{error}'")
+                logging.error(f"Too many redirects: '{error}'")
             except requests.exceptions.RequestException as err:
-                 self.logger.error(f"OOps: Something Else: {err}")
+                logging.error(f"OOps: Something Else: {err}")
 
             if http_staus_code and int(http_staus_code) == 200:
-                self.logger.info("  - success")
+                logging.info(f"  - {domain}: success")
                 result = True
             else:
-                self.logger.info("  - failed")
+                logging.info(f"  - {domain}: failed")
 
             try:
                 os.remove(uuid_file)
             except OSError:
                 pass
         else:
-            self.logger.error(f"missing domain config file {domain}.yml")
-            result = None
+            logging.error(f"missing domain config file {domain}.yml")
+            result = False
 
         return result
 
     def _diff_domains(self, domain):
         """
         """
-        self.logger.debug(f"::_diff_domains({domain})")
+        # logging.debug(f"::_diff_domains({domain})")
 
         data = None
-        _cert =[]
-        self.logger.debug(self.current_certificates)
-        self.logger.debug(self.config_domains)
+        _cert = []
+        # logging.debug(self.current_certificates)
+        # logging.debug(self.config_domains)
 
         config_path = os.path.join(self.config_base_path, f"{domain}.yml")
 
-        self.logger.debug(f"  config file: {config_path}")
+        logging.debug(f"  config file: {config_path}")
 
         if os.path.exists(config_path):
             with open(config_path, "r") as stream:
                 try:
                     data = yaml.safe_load(stream)
                 except yaml.YAMLError as exc:
-                    self.logger.error(f"  ERROR : '{exc}'")
+                    logging.error(f"  ERROR : '{exc}'")
 
-        self.logger.debug(f"  data: {data}")
+        # logging.debug(f"  data: {data}")
 
         _domains = data.get("domains", [])
         _domains = sorted(_domains)
 
-        self.logger.debug(f"  domains: {_domains}")
+        # logging.debug(f"  domains: {_domains}")
 
         if self.current_certificates:
-            _cert    = sorted(self.current_certificates.get(domain, {}).get("alt_names"))
+            _cert = sorted(self.current_certificates.get(domain, {}).get("alt_names"))
 
-        self.logger.debug(f" - {_domains} - {type(_domains)}")
-        self.logger.debug(f" - {_cert} - {type(_cert)}")
+        # logging.debug(f" - {_domains} - {type(_domains)}")
+        logging.debug(f" - {_cert}")
 
         diff = list(set(_domains) - set(_cert))
 
         if len(diff) == 0:
-            self.expand=False
+            self.expand = False
         else:
             self.expand = True
 
-            self.logger.info("you must expand your certifiacte!")
-            self.logger.info(diff)
+            logging.info("you must expand your certifiacte!")
+            logging.info(diff)
 
     def __define_certbot_opts(self, domain, expand=False):
         """
@@ -504,7 +596,7 @@ class RenewCertificates():
 
 def main():
     p = RenewCertificates()
-    result = p.run()
+    p.run()
 
 
 if __name__ == '__main__':
