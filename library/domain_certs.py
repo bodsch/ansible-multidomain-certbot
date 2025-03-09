@@ -10,6 +10,54 @@ import os
 
 from ansible.module_utils.basic import AnsibleModule
 
+# ---------------------------------------------------------------------------------------
+
+DOCUMENTATION = """
+---
+module: domain_certs
+author: "Bodo 'bodsch' Schulz (@bodsch) <bodo@boone-schulz.de>"
+version_added: 1.0.0
+
+short_description: creates a certificate with letsentcrypt certbot
+
+description:
+    - creates a certificate with letsentcrypt certbot
+
+options:
+  path:
+    description:
+      -
+    required: true
+    type: str
+
+  file:
+    description:
+      -
+    required: true
+    type: str
+
+  certificates:
+    description:
+      -
+    required: true
+    type: list
+"""
+
+EXAMPLES = """
+- name: ensure that domain certificates are present
+  domain_certs:
+    path: /etc/letsencrypt/live
+    file: fullchain.pem
+    certificates:
+      - domain: foo.bar
+        subdomains: www.foo.bar
+  register: domain_certificates_exists
+"""
+
+RETURN = """
+"""
+
+# ---------------------------------------------------------------------------------------
 
 class DomainCerts(object):
     """

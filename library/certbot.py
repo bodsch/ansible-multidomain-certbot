@@ -10,6 +10,91 @@ import os
 
 from ansible.module_utils.basic import AnsibleModule
 
+# ---------------------------------------------------------------------------------------
+
+DOCUMENTATION = """
+---
+module: certbot
+author: "Bodo 'bodsch' Schulz (@bodsch) <bodo@boone-schulz.de>"
+version_added: 1.0.0
+
+short_description: creates a certificate with letsentcrypt certbot
+
+description:
+    - creates a certificate with letsentcrypt certbot
+
+options:
+  state:
+    description:
+      - (C(certonly))
+    default: certonly
+    required: true
+
+  webroot_path:
+    description:
+      -
+    required: true
+    type: str
+
+  rsa_key_size:
+    description:
+      -
+    default: 4096
+    type: int
+
+  domains:
+    description:
+      -
+    required: true
+    type: list
+
+  certbot_base_directory:
+    description:
+      -
+    default: /etc/letsencrypt
+    required: false
+
+  email:
+    description:
+      -
+    required: true
+    type: str
+
+  quiet:
+    description:
+      -
+    default: false
+    required: false
+    type: bool
+
+  arguments:
+    description:
+      -
+    required: false
+    type: list
+"""
+
+EXAMPLES = """
+- name: create certificate with certbot certonly
+  certbot:
+    state: certonly
+    arguments:
+      - --test-cert
+      - --dry-run
+    webroot_path: /var/www/certbot
+    rsa_key_size: 4096
+    domains:
+      - domain: foo.bar
+        subdomains: www.foo.bar
+    certbot_base_directory: /etc/letsencrypt
+    email: pki@test.com
+  register: create_certificates
+"""
+
+RETURN = """
+"""
+
+# ---------------------------------------------------------------------------------------
 
 class DomainCerts(object):
     """
