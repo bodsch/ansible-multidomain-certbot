@@ -14,4 +14,6 @@ multi_certbot_defaults_systemd:
     timer: certbot.timer
     service: certbot.service
 
+systemd_lib_directory: /lib/systemd/system
+
 ...

@@ -84,11 +84,14 @@
     domains: "{{ multi_certbot_tls_certificates }}"
     certbot_base_directory: "{{ multi_certbot_config.conf_directory }}"
     email: "{{ multi_certbot_config.email }}"
+    test_cert: "{{ multi_certbot_test_cert | default('true') }}"
+    dry_run: "{{ multi_certbot_dry_run | default('true') }}"
+    auto_expand: "{{ multi_certbot_auto_expand | default('true') }}"
   register: create_certificates
   when:
     - multi_certbot_tls_certificates is defined
     - multi_certbot_tls_certificates | count > 0
-    - not multi_certbot_dry_run | default('true')
+    # - not multi_certbot_dry_run | default('true')
   ignore_errors: true
 
 - name: d

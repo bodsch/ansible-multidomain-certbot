@@ -7,6 +7,9 @@
 from __future__ import absolute_import, division, print_function
 
 import os
+import json
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 from ansible.module_utils.basic import AnsibleModule
 
@@ -67,6 +70,27 @@ options:
     required: false
     type: bool
 
+  test_cert:
+    description:
+      -
+    default: false
+    required: false
+    type: bool
+
+  dry_run:
+    description:
+      -
+    default: false
+    required: false
+    type: bool
+
+  auto_expand:
+    description:
+      -
+    default: false
+    required: false
+    type: bool
+
   arguments:
     description:
       -
@@ -89,6 +113,38 @@ EXAMPLES = """
     certbot_base_directory: /etc/letsencrypt
     email: pki@test.com
   register: create_certificates
+
+- name: create test certificate with certbot
+  certbot:
+    state: certonly
+    dry_run: true
+    test_cert: true
+    webroot_path: /var/www/certbot
+    rsa_key_size: 4096
+    domains:
+      - domain: foo.bar
+        subdomains: www.foo.bar
+    certbot_base_directory: /etc/letsencrypt
+    email: pki@test.com
+  register: create_certificates
+
+- name: create test certificate with certbot and extend the existing certificate
+  certbot:
+    state: certonly
+    dry_run: true
+    test_cert: true
+    auto_expand: true
+    webroot_path: /var/www/certbot
+    rsa_key_size: 4096
+    domains:
+      - domain: foo.bar
+        subdomains:
+          - www.foo.bar
+          - stage.foo.bar
+    certbot_base_directory: /etc/letsencrypt
+    email: pki@test.com
+  register: create_certificates
+
 """
 
 RETURN = """
@@ -112,6 +168,9 @@ class DomainCerts(object):
         self.certbot_base_directory = module.params.get("certbot_base_directory")
         self.email = module.params.get("email")
         self.quiet = module.params.get("quiet")
+        self.test_cert = module.params.get("test_cert")
+        self.dry_run = module.params.get("dry_run")
+        self.auto_expand = module.params.get("auto_expand")
         self.arguments = module.params.get("arguments")
 
         self._certbot = module.get_bin_path('certbot', True)
@@ -154,6 +213,12 @@ class DomainCerts(object):
             base_args.append("--webroot-path")
             base_args.append(self.webroot_path)
 
+        if self.test_cert:
+            base_args.append("--test-cert")
+
+        if self.dry_run:
+            base_args.append("--dry-run")
+
         if len(self.arguments) > 0:
             for arg in self.arguments:
                 base_args.append(arg)
@@ -166,6 +231,9 @@ class DomainCerts(object):
             # self.module.log(msg=f"     - domains {domain_list}")
 
             cert_path = os.path.join(self.certbot_base_directory, "live", domain_name)
+
+            current_certificates = self._current_certificates(cert_path)
+
             if not os.path.exists(cert_path):
                 # result_msgs[domain_name] = {}
                 # self.module.log(msg=f"        run certbot")
@@ -177,9 +245,13 @@ class DomainCerts(object):
                     args.append("--domain")
                     args.append(d)
 
-                # self.module.log(msg=f" - args {args}")
+                self.module.log(msg=f" - args {args}")
 
-                rc, out, err = self.__exec(args, check=False)
+                # rc, out, err = self.__exec(args, check=False)
+                rc = 2
+                out = "testing"
+                err = "testing"
+
                 # self.module.log(msg=f"  rc : '{rc}'")
                 # self.module.log(msg=f"  out: '{out}'")
                 # self.module.log(msg=f"  err: '{err}'")
@@ -248,6 +320,57 @@ class DomainCerts(object):
 
         return domains
 
+    def _current_certificates(self, domain_path):
+        """
+            current_certificates() {
+              echo "current certificates"
+              certbot certificates
+            }
+        """
+        self.module.log(msg=f"::_current_certificates(self, {domain_path})")
+
+        alt_names = []
+        result = {}
+
+        # dateformat = "%d.%m.%Y"
+
+        for currentpath, dirs, files in os.walk(domain_path, topdown=True):
+            for file in files:
+                if file == "fullchain.pem":
+                    f = os.path.join(currentpath, file)
+
+                    self.module.log(msg=f"  - file: {f}")
+
+                    with open(f, 'br') as cert_content:
+                        cert_data = cert_content.read()
+                        cert_decoded = x509.load_pem_x509_certificate(cert_data, default_backend())
+
+                        # print(cert_decoded.issuer)
+
+                        subject = cert_decoded.subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value.lower()
+                        # hash_algorithm = cert_decoded.signature_hash_algorithm
+
+                        SubjectAlternativeName = cert_decoded.extensions.get_extension_for_oid(x509.extensions.ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+                        if SubjectAlternativeName:
+                            alt_names = SubjectAlternativeName.value.get_values_for_type(x509.extensions.DNSName)
+
+                        #_valid_after = cert_decoded.not_valid_after_utc.strftime(dateformat)
+                        #_now = datetime.datetime.now(datetime.UTC).strftime(dateformat)
+                        #expire = (datetime.datetime.strptime(_valid_after, dateformat) - datetime.datetime.strptime(_now, dateformat)).days
+
+                        self.module.log(msg=f"  - subject  : {subject}")
+                        self.module.log(msg=f"  - alt names: {alt_names}")
+
+                        result[subject] = {}
+                        result[subject].update({
+                            "alt_names": alt_names
+                        })
+
+        dbg_msg = json.dumps(result, sort_keys=False, indent=2)
+        self.module.log(msg=f"  - {dbg_msg}")
+
+        return result
+
     def __exec(self, args, check=True):
         """
         """
@@ -291,6 +414,21 @@ def main():
             type="str"
         ),
         quiet=dict(
+            required=False,
+            type="bool",
+            default=False
+        ),
+        test_cert=dict(
+            required=False,
+            type="bool",
+            default=False
+        ),
+        dry_run=dict(
+            required=False,
+            type="bool",
+            default=False
+        ),
+        auto_expand=dict(
             required=False,
             type="bool",
             default=False

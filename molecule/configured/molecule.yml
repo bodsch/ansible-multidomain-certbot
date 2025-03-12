@@ -31,8 +31,10 @@ provisioner:
     - -v
   config_options:
     defaults:
-      deprecation_warnings: True
-      stdout_callback: yaml
+      deprecation_warnings: true
+      check_mode_markers: true
+      callback_format_pretty: true
+      result_format: yaml
       callbacks_enabled: profile_tasks
 
 scenario:

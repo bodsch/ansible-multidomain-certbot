@@ -123,7 +123,6 @@ def main():
     p = DomainCerts(module)
     result = p.run()
 
-    # module.log(msg="= result: {}".format(result))
     module.exit_json(**result)
 
 

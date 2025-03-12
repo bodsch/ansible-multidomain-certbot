@@ -95,6 +95,7 @@ def test_package(host, get_vars):
     "/etc/certbot/domains",
     "/etc/letsencrypt",
     "/var/www/certbot",
+    "/etc/systemd/system/certbot.service.d"
 ])
 def test_directories(host, dirs):
     d = host.file(dirs)
@@ -104,6 +105,10 @@ def test_directories(host, dirs):
 
 @pytest.mark.parametrize("files", [
     "/etc/certbot/renew.yml",
+    "/etc/certbot/domains/boone-schulz.lan.yml",
+    "/etc/certbot/domains/haus-der-schmerzen.lan.yml",
+    "/etc/certbot/domains/zweit-hirn.lan.yml",
+    "/etc/systemd/system/certbot.service.d/overwrite.conf"
 ])
 def test_files(host, files):
     f = host.file(files)
