@@ -31,8 +31,8 @@ multi_certbot_systemd: {}
 #    timer: certbot.timer
 #    service: certbot.service
 
-multi_certbot_staging_args:
-  - --test-cert
-  - --dry-run
+multi_certbot_staging_args: []
+#  - --test-cert
+#  - --dry-run
 
 ...
