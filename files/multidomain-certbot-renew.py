@@ -186,7 +186,7 @@ class RenewCertificates():
                 self._diff_domains(domain)
                 should_be_renewd = self.check_renew_certificates(domain)
 
-                if should_be_renewd:
+                if should_be_renewd or self.expand:
                     _ = self._renew_certificate(domain=domain)
 
         logging.info("done ...\n")
@@ -262,6 +262,16 @@ class RenewCertificates():
                 logging.info(msg)
 
             return False
+
+    def check_expand_certificates(self, domain):
+        """
+        """
+        result = True
+
+        logging.debug(f" current certs  {self.current_certificates}")
+
+
+        return result
 
     def _renew_certificate(self, domain):
         """
