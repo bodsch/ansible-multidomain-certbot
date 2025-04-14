@@ -14,6 +14,8 @@ import datetime
 import subprocess
 # import pty
 import socket
+from dns.resolver import Resolver
+import dns.exception
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -54,6 +56,76 @@ class MemoryLogHandler(logging.Handler):
     def get_logs(self):
         """Gibt alle Logs als String zurück"""
         return "\n".join(self.log_messages)
+
+
+class DNSResolver:
+    """
+    """
+    def dns_lookup(dns_name, timeout=3, dns_resolvers=[]):
+        """
+          Perform a simple DNS lookup, return results in a dictionary
+        """
+        resolver = Resolver()
+        resolver.timeout = float(timeout)
+        resolver.lifetime = float(timeout)
+
+        result = {}
+
+        if not dns_name:
+            return {
+                "addrs": [],
+                "error": True,
+                "error_msg": "No DNS Name for resolving given",
+                "name": dns_name,
+            }
+
+        if dns_resolvers:
+            resolver.nameservers = dns_resolvers
+        try:
+            records = resolver.resolve(dns_name)
+            result = {
+                "addrs": [ii.address for ii in records],
+                "error": False,
+                "error_msg": "",
+                "name": dns_name,
+            }
+        except dns.resolver.NXDOMAIN:
+            result = {
+                "addrs": [],
+                "error": True,
+                "error_msg": "No such domain",
+                "name": dns_name,
+            }
+        except dns.resolver.NoNameservers as e:
+            result = {
+                "addrs": [],
+                "error": True,
+                "error_msg": repr(e),
+                "name": dns_name,
+            }
+        except dns.resolver.Timeout:
+            result = {
+                "addrs": [],
+                "error": True,
+                "error_msg": "Timed out while resolving",
+                "name": dns_name,
+            }
+        except dns.resolver.NameError as e:
+            result = {
+                "addrs": [],
+                "error": True,
+                "error_msg": repr(e),
+                "name": dns_name,
+            }
+        except dns.exception.DNSException as e:
+            result = {
+                "addrs": [],
+                "error": True,
+                "error_msg": f"Unhandled exception ({repr(e)})",
+                "name": dns_name,
+            }
+
+        return result
 
 
 class RenewCertificates():
@@ -273,7 +345,6 @@ class RenewCertificates():
 
         logging.debug(f" current certs  {self.current_certificates}")
 
-
         return result
 
     def _renew_certificate(self, domain):
@@ -358,9 +429,30 @@ class RenewCertificates():
 
         # DNS verify for domains!
         if data:
-            return data.get('domains', [])
+
+            domains = data.get('domains', [])
+            domains = self.domains_from_config(domains)
+
+            return domains
         else:
             return []
+
+    def validate domains_from_config(self, domain_list):
+        """
+        """
+        if len(domain_list) > 0:
+            _resolver = DNSResolver()
+
+            _domain = []
+
+            for x in domain_list:
+                dns_result = _resolver.dns_lookup(x)
+
+                if not dns_result.get("error"):
+                    _domain.append(x)
+            domain_list = _domain
+
+        return domain_list
 
     def print_current_certs(self):
 
@@ -571,7 +663,7 @@ class RenewCertificates():
 
                 alt_names = domain_avail.get("alt_names")
                 logging.debug(f"  alt name : {alt_names}")
-                _cert = sorted(alt_names) #self.current_certificates.get(domain, {}).get("alt_names"))
+                _cert = sorted(alt_names)  # self.current_certificates.get(domain, {}).get("alt_names"))
             else:
                 pass
 
