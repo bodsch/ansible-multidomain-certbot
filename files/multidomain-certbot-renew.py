@@ -236,14 +236,17 @@ class RenewCertificates():
         # logging.debug(f"check_renew_certificates({domain})")
         # logging.debug(self.current_certificates)
 
+        cert_expire = 0
+
         if len(self.current_certificates) == 0:
             return True
 
         domain_data = self.current_certificates.get(domain)
         logging.debug(domain_data)
 
-        cert_expire = domain_data.get('expire', 0)
-        logging.info(f"  expire in {cert_expire} days")
+        if domain_data:
+            cert_expire = domain_data.get('expire', 0)
+            logging.info(f"  expire in {cert_expire} days")
 
         if cert_expire <= self.config_expire_days_limit:
             return True
@@ -353,6 +356,7 @@ class RenewCertificates():
                 except yaml.YAMLError as exc:
                     self.module.log(msg=f"  ERROR : '{exc}'")
 
+        # DNS verify for domains!
         if data:
             return data.get('domains', [])
         else:
@@ -561,7 +565,15 @@ class RenewCertificates():
         # logging.debug(f"  domains: {_domains}")
 
         if self.current_certificates:
-            _cert = sorted(self.current_certificates.get(domain, {}).get("alt_names"))
+            domain_avail = self.current_certificates.get(domain, None)
+            if domain_avail:
+                logging.debug(f"  domain: {domain_avail}")
+
+                alt_names = domain_avail.get("alt_names")
+                logging.debug(f"  alt name : {alt_names}")
+                _cert = sorted(alt_names) #self.current_certificates.get(domain, {}).get("alt_names"))
+            else:
+                pass
 
         # logging.debug(f" - {_domains} - {type(_domains)}")
         logging.debug(f" - {_cert}")
