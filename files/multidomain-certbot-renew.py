@@ -142,6 +142,11 @@ class RenewCertificates():
         self.logger.setLevel(logging.DEBUG)
         self.log_level = self.args.log_level
 
+        self.dry_run = self.args.dry_run
+        self.verbose = self.args.verbose
+
+        self.log_file = "/var/log/certbot-renew.log"
+
         self.log_memory_handler = MemoryLogHandler()
         self.setup_logging()
 
@@ -179,6 +184,12 @@ class RenewCertificates():
             help="do nothing")
 
         p.add_argument(
+            "--verbose",
+            required=False,
+            action='store_true',
+            help="verbose output for certbot")
+
+        p.add_argument(
             "--log-level",
             type=str,
             default="INFO",
@@ -202,7 +213,7 @@ class RenewCertificates():
             "%(asctime)s - %(levelname)s - %(message)s", "%Y-%m-%d %H:%M:%S")
 
         # Datei-Logging (speichert ALLE Logs mit passendem Format)
-        file_handler = logging.FileHandler("/var/log/certbot-renew.log")
+        file_handler = logging.FileHandler(self.log_file)
         file_handler.setLevel(log_level_numeric)
         file_handler.setFormatter(
             debug_formatter if log_level_numeric == logging.DEBUG else standard_formatter)
@@ -230,8 +241,7 @@ class RenewCertificates():
         logging.debug("--------------------------------------------------")
         logging.debug(f" config file    : {self.args.config}")
         logging.debug(f" directory      : {self.args.directory}")
-        # logging.debug(f" list           : {self.args.list}")
-        # logging.debug(f" dry-run        : {self.args.dry_run}")
+        logging.debug(f" log file       : {self.log_file}")
         logging.debug("--------------------------------------------------")
 
         self.current_certificates = self._current_certificates()
@@ -350,7 +360,7 @@ class RenewCertificates():
     def _renew_certificate(self, domain):
         """
         """
-        # logging.debug(f"_renew_certificate({domain})")
+        logging.debug(f"_renew_certificate({domain})")
 
         _domain_list = self.read_domains_from_config(domain)
         _domains = "--domain "
@@ -407,8 +417,17 @@ class RenewCertificates():
             logging.info(f"{stdout}")
             return True
         else:
-            logging.error(f" - stdout: {str(stdout)}")
-            logging.error(f" - stderr: {stderr}")
+            _stdout = f"{stdout.rstrip()}"
+            _stderr = f"{stderr.rstrip()}"
+            _stdout_lines = _stdout.split("\n")
+            _stderr_lines = _stderr.split("\n")
+
+            for _so in _stdout_lines:
+                logging.error(f"   - stdout: {_so}")
+
+            for _se in _stderr_lines:
+                logging.error(f"   - stderr: {_se}")
+
             return False
 
     def read_domains_from_config(self, domain):
@@ -425,21 +444,25 @@ class RenewCertificates():
                 try:
                     data = yaml.safe_load(stream)
                 except yaml.YAMLError as exc:
-                    self.module.log(msg=f"  ERROR : '{exc}'")
+                    logging.error(msg=f"  ERROR : '{exc}'")
 
         # DNS verify for domains!
         if data:
 
             domains = data.get('domains', [])
-            domains = self.domains_from_config(domains)
+            domains = self.validate_domains_from_config(domains)
 
             return domains
         else:
             return []
 
-    def validate domains_from_config(self, domain_list):
+    def validate_domains_from_config(self, domain_list):
         """
         """
+        logging.debug(f"validate_domains_from_config({domain_list})")
+
+        reject_domains = []
+
         if len(domain_list) > 0:
             _resolver = DNSResolver()
 
@@ -448,9 +471,17 @@ class RenewCertificates():
             for x in domain_list:
                 dns_result = _resolver.dns_lookup(x)
 
+                logging.debug(f"  - {dns_result}")
+
                 if not dns_result.get("error"):
                     _domain.append(x)
+                else:
+                    reject_domains.append(x)
+
             domain_list = _domain
+
+        if len(reject_domains) > 0:
+            logging.warn(f"reject following domains: {reject_domains}")
 
         return domain_list
 
@@ -592,12 +623,17 @@ class RenewCertificates():
             uuid_file = os.path.join(self.certbot_acme_directory, ".well-known/acme-challenge", _uid)
             domain_challenge = f"http://{domain}/.well-known/acme-challenge/{_uid}"
 
-            open(uuid_file, mode='a').close()
+            f = open(uuid_file, mode='a')
+            f.write(_uid)
+            f.close()
+
+            logging.debug(f"test url: {domain_challenge}")
 
             try:
                 x = requests.get(domain_challenge, timeout=3)
                 # requests.raise_for_status()
                 http_staus_code = x.status_code
+                http_message = x.text.strip()
                 # logging.info(f"   {domain} with status code: {http_staus_code}")
 
             except requests.exceptions.HTTPError as errh:
@@ -613,8 +649,11 @@ class RenewCertificates():
                 logging.error(f"OOps: Something Else: {err}")
 
             if http_staus_code and int(http_staus_code) == 200:
-                logging.info(f"  - {domain}: success")
-                result = True
+                if http_message == _uid:
+                    logging.info(f"  - {domain}: success")
+                    result = True
+                else:
+                    logging.error(f"  - {domain}: failed (code: {http_staus_code}, msg: {http_message})")
             else:
                 logging.info(f"  - {domain}: failed")
 
@@ -704,6 +743,9 @@ class RenewCertificates():
         cmd.append("--email")
         cmd.append(self.config_email)
         cmd.append("-n")
+
+        if self.verbose or self.log_level == "DEBUG":
+            cmd.append("--verbose")
 
         return cmd
 
