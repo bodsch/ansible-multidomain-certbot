@@ -3,7 +3,9 @@
 multi_certbot_requirements:
   # - iproute2
   - bc
-  - python-jinja
+  # - python-jinja
+  - python-dnspython
+  - python-pydbus
 
 multi_certbot_system:
   user: http

@@ -16,6 +16,7 @@ import subprocess
 import socket
 from dns.resolver import Resolver
 import dns.exception
+from pydbus import SystemBus
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -56,6 +57,96 @@ class MemoryLogHandler(logging.Handler):
     def get_logs(self):
         """Gibt alle Logs als String zurück"""
         return "\n".join(self.log_messages)
+
+
+class ServiceManager:
+    def __init__(self):
+        self.init_system = self.detect_init_system()
+
+    def detect_init_system(self):
+        if os.path.isdir("/run/systemd/system"):
+            return "systemd"
+        try:
+            result = subprocess.run(["rc-status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if result.returncode == 0:
+                return "openrc"
+        except FileNotFoundError:
+            pass
+        return "unknown"
+
+    def restart_service(self, service_name):
+        return self._exec("restart", service_name)
+
+    def start_service(self, service_name):
+        return self._exec("start", service_name)
+
+    def stop_service(self, service_name):
+        return self._exec("stop", service_name)
+
+    def get_status(self, service_name):
+        if self.init_system == "systemd":
+            try:
+                bus = SystemBus()
+                systemd = bus.get(".systemd1")
+                unit_path = systemd.LoadUnit(service_name)
+                service = bus.get(".systemd1", unit_path)
+                status = {
+                    "ActiveState": service.ActiveState,
+                    "SubState": service.SubState
+                }
+                return status
+            except Exception as e:
+                return {"error": str(e)}
+        elif self.init_system == "openrc":
+            try:
+                result = subprocess.run(["rc-service", service_name, "status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                return {
+                    "output": result.stdout.strip(),
+                    "error": result.stderr.strip(),
+                    "code": result.returncode
+                }
+            except Exception as e:
+                return {"error": str(e)}
+        else:
+            return {"error": "Init system not supported"}
+
+    def list_services(self):
+        if self.init_system == "systemd":
+            try:
+                result = subprocess.run(["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"], stdout=subprocess.PIPE, text=True)
+                services = [line.split()[0] for line in result.stdout.strip().split("\n") if line]
+                return services
+            except Exception as e:
+                return [f"Fehler: {e}"]
+        elif self.init_system == "openrc":
+            try:
+                result = subprocess.run(["rc-status", "--servicelist"], stdout=subprocess.PIPE, text=True)
+                services = [line.strip() for line in result.stdout.strip().split("\n") if line]
+                return services
+            except Exception as e:
+                return [f"Fehler: {e}"]
+        else:
+            return ["Init system not supported"]
+
+    def _exec(self, action, service_name):
+        if self.init_system == "systemd":
+            try:
+                bus = SystemBus()
+                systemd = bus.get(".systemd1")
+                unit_path = systemd.LoadUnit(service_name)
+                service = bus.get(".systemd1", unit_path)
+                getattr(service, action.capitalize())("replace")
+                print(f"{service_name} wurde erfolgreich per systemd {action}ed.")
+            except Exception as e:
+                print(f"Fehler bei systemd {action}: {e}")
+        elif self.init_system == "openrc":
+            try:
+                subprocess.run(["rc-service", service_name, action], check=True)
+                print(f"{service_name} wurde erfolgreich per OpenRC {action}ed.")
+            except subprocess.CalledProcessError as e:
+                print(f"Fehler bei OpenRC {action}: {e}")
+        else:
+            print("Init-System nicht unterstützt.")
 
 
 class DNSResolver:
@@ -128,6 +219,80 @@ class DNSResolver:
         return result
 
 
+class SMTPManager:
+    """
+    """
+    def __init__(self, logging, subject, sender={}, recipient={}, smtp={}, body=None):
+        """
+        """
+        self.logging = logging
+
+        self.subject = self.subject()
+        self.body = self.body()
+        self.sender = sender
+        self.recipient = recipient
+        self.smtp = smtp
+
+        logging.debug("--------------------------------------------------")
+        logging.debug(f" subject      : {self.subject}")
+        logging.debug(f" sender       : {self.sender}")
+        logging.debug(f" recipient    : {self.recipient}")
+        logging.debug(f" smtp         : {self.smtp}")
+        logging.debug("--------------------------------------------------")
+
+
+    def body(self, mail_body):
+        self.body = mail_body
+
+    def subject(self, mail_subject):
+        self.subject = mail_subject
+
+    def send_email(self):
+        """
+            Sendet die gespeicherten Logs per E-Mail.
+        """
+        import smtplib
+        from email.mime.text import MIMEText
+
+        email_body = self.log_memory_handler.get_logs()
+        subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
+
+        logging.debug("sending email")
+        logging.debug(f"  - from   : {self.notification_sender}")
+        logging.debug(f"  - to     : {self.notification_recipient}")
+        logging.debug(f"  - subject: {subject}")
+        logging.debug("  - body   :")
+        for line in email_body.splitlines():
+            logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
+
+        if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
+            """
+            """
+            msg = MIMEText(email_body)
+            msg["Subject"] = subject
+            msg["From"] = self.notification_sender
+            msg["To"] = self.notification_recipient
+
+            try:
+                with smtplib.SMTP("smtp.example.com", 587) as server:
+                    server.starttls()
+                    server.login("deine@email.com", "dein_passwort")
+                    server.sendmail(
+                        self.notification_sender,
+                        self.notification_recipient,
+                        msg.as_string()
+                    )
+                logging.info("email was successfully sent.")
+            except Exception as e:
+                logging.error("Fehler beim Senden der E-Mail:")
+                logging.error(f"  {e}")
+        else:
+            logging.error("missing smtp server_nemr, or sender, or recipient.")
+
+
+
+
+
 class RenewCertificates():
     """
     """
@@ -146,6 +311,7 @@ class RenewCertificates():
         self.verbose = self.args.verbose
 
         self.log_file = "/var/log/certbot-renew.log"
+        self.run_dir = "/run/multidomain-certbot"
 
         self.log_memory_handler = MemoryLogHandler()
         self.setup_logging()
@@ -244,6 +410,8 @@ class RenewCertificates():
         logging.debug(f" log file       : {self.log_file}")
         logging.debug("--------------------------------------------------")
 
+        self.create_directory(os.path.join(self.run_dir, "restarts"))
+
         self.current_certificates = self._current_certificates()
 
         if self.args.list:
@@ -270,6 +438,9 @@ class RenewCertificates():
 
                 if should_be_renewd or self.expand:
                     _ = self._renew_certificate(domain=domain)
+
+        self.restart_services()
+
 
         logging.info("done ...\n")
 
@@ -311,6 +482,24 @@ class RenewCertificates():
                 self.notification_sender = notification.get("sender", None)
                 self.notification_recipient = notification.get(
                     "recipient", None)
+
+
+            restart_services = data.get("restart_services", [])
+            if len(restart_services) > 0:
+                # TODO
+                self.restart_services = restart_services
+
+    def restart_services(self):
+        """
+        """
+        # TODO
+        restart_dir = os.path.join(self.run_dir, "restarts")
+
+        if os.path.exists(restart_dir):
+            for root, dirs, files in os.walk(restart_dir, topdown=False):
+                logging.debug(dirss)
+                logging.debug(files)
+
 
     def check_renew_certificates(self, domain):
         """
@@ -413,13 +602,20 @@ class RenewCertificates():
         stdout, stderr = process.communicate()
         rc = process.returncode
 
+        _stdout = f"{stdout.rstrip()}"
+        _stdout_lines = _stdout.split("\n")
+
         if rc == 0:
-            logging.info(f"{stdout}")
+            for _so in _stdout_lines:
+                logging.info(f"   - stdout: {_so}")
+
+            # marker for restart services
+            marker = os.path.join(self.run_dir, "restarts", domain)
+            open(marker, mode='a').close()
+
             return True
         else:
-            _stdout = f"{stdout.rstrip()}"
             _stderr = f"{stderr.rstrip()}"
-            _stdout_lines = _stdout.split("\n")
             _stderr_lines = _stderr.split("\n")
 
             for _so in _stdout_lines:
@@ -494,6 +690,12 @@ class RenewCertificates():
         """
             Sendet die gespeicherten Logs per E-Mail.
         """
+        if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
+            pass
+        else:
+            logging.error("missing smtp server_nemr, or sender, or recipient.")
+            return
+
         import smtplib
         from email.mime.text import MIMEText
 
@@ -505,32 +707,56 @@ class RenewCertificates():
         logging.debug(f"  - to     : {self.notification_recipient}")
         logging.debug(f"  - subject: {subject}")
         logging.debug("  - body   :")
+
         for line in email_body.splitlines():
             logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
 
-        if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
-            """
-            """
-            msg = MIMEText(email_body)
-            msg["Subject"] = subject
-            msg["From"] = self.notification_sender
-            msg["To"] = self.notification_recipient
 
-            try:
-                with smtplib.SMTP("smtp.example.com", 587) as server:
-                    server.starttls()
-                    server.login("deine@email.com", "dein_passwort")
-                    server.sendmail(
-                        self.notification_sender,
-                        self.notification_recipient,
-                        msg.as_string()
-                    )
-                logging.info("email was successfully sent.")
-            except Exception as e:
-                logging.error("Fehler beim Senden der E-Mail:")
-                logging.error(f"  {e}")
-        else:
-            logging.error("missing smtp server_nemr, or sender, or recipient.")
+        smtp = SMTPManager(
+            logging=self.logging,
+            subject= f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}",
+            sender=dict(
+                email=self.notification_sender
+            ),
+            recipient=dict(
+                email=self.notification_recipient
+            ),
+            smtp=dict(
+                server_name=self.notification_smtp_host,
+                port=self.notification_smtp_port,
+                login=dict(
+                    username=self.notification_smtp_username,
+                    password=self.notification_smtp_password
+                )
+            ),
+            body=email_body
+        )
+
+
+
+        # if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
+        #     """
+        #     """
+        #     msg = MIMEText(email_body)
+        #     msg["Subject"] = subject
+        #     msg["From"] = self.notification_sender
+        #     msg["To"] = self.notification_recipient
+        #
+        #     try:
+        #         with smtplib.SMTP("smtp.example.com", 587) as server:
+        #             server.starttls()
+        #             server.login("deine@email.com", "dein_passwort")
+        #             server.sendmail(
+        #                 self.notification_sender,
+        #                 self.notification_recipient,
+        #                 msg.as_string()
+        #             )
+        #         logging.info("email was successfully sent.")
+        #     except Exception as e:
+        #         logging.error("Fehler beim Senden der E-Mail:")
+        #         logging.error(f"  {e}")
+        # else:
+        #     logging.error("missing smtp server_nemr, or sender, or recipient.")
 
     def _current_certificates(self):
         """
@@ -748,6 +974,20 @@ class RenewCertificates():
             cmd.append("--verbose")
 
         return cmd
+
+    def create_directory(self, directory):
+        """
+        """
+        try:
+            os.makedirs(directory, exist_ok=True)
+        except FileExistsError:
+            pass
+
+        if os.path.isdir(directory):
+            return True
+        else:
+            return False
+
 
 
 def main():

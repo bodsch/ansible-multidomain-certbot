@@ -20,6 +20,9 @@ multi_certbot_notification:
   smtp:
     server_name: ""             # smtp.example.com
     port: ""                    # 587
+    login:
+      username:                 #
+      password: ""
   sender: ""                    # backup@example.com
   recipient: ""                 # admin@foo.bar
 
@@ -34,5 +37,10 @@ multi_certbot_systemd: {}
 multi_certbot_staging_args: []
 #  - --test-cert
 #  - --dry-run
+
+multi_certbot_restart_services:
+  - name: nginx
+  - name: postfix
+  - name: dovecot
 
 ...

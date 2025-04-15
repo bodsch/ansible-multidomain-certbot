@@ -27,3 +27,10 @@ notification:
   sender: {{ multi_certbot_notification.sender | default('') }}
   recipient: {{ multi_certbot_notification.recipient | default('') }}
 {% endif %}
+
+{% if multi_certbot_restart_services | default([] ) | count > 0 %}
+restart_services:
+  {% for service in multi_certbot_restart_services %}
+  - name: {{ service.get('name') }}
+  {% endfor %}
+{% endif %}
