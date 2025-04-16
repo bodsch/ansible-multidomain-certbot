@@ -20,7 +20,7 @@ multi_certbot_notification:
   smtp:
     server_name: ""             # smtp.example.com
     port: ""                    # 587
-    login:
+    auth:
       username:                 #
       password: ""
   sender: ""                    # backup@example.com

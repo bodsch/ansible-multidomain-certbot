@@ -96,13 +96,18 @@ class ServiceManager:
                 }
                 return status
             except Exception as e:
-                return {"error": str(e)}
+                return {
+                    "stderr": str(e),
+                    "error": True
+                }
         elif self.init_system == "openrc":
             try:
-                result = subprocess.run(["rc-service", service_name, "status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                cmd = ["rc-service", service_name, "status"]
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 return {
-                    "output": result.stdout.strip(),
-                    "error": result.stderr.strip(),
+                    "error": True,
+                    "stdout": result.stdout.strip(),
+                    "stderr": result.stderr.strip(),
                     "code": result.returncode
                 }
             except Exception as e:
@@ -113,14 +118,16 @@ class ServiceManager:
     def list_services(self):
         if self.init_system == "systemd":
             try:
-                result = subprocess.run(["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"], stdout=subprocess.PIPE, text=True)
+                cmd = ["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"]
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
                 services = [line.split()[0] for line in result.stdout.strip().split("\n") if line]
                 return services
             except Exception as e:
                 return [f"Fehler: {e}"]
         elif self.init_system == "openrc":
             try:
-                result = subprocess.run(["rc-status", "--servicelist"], stdout=subprocess.PIPE, text=True)
+                cmd = ["rc-status", "--servicelist"]
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
                 services = [line.strip() for line in result.stdout.strip().split("\n") if line]
                 return services
             except Exception as e:
@@ -227,11 +234,24 @@ class SMTPManager:
         """
         self.logging = logging
 
-        self.subject = self.subject()
-        self.body = self.body()
+        self.subject = subject
+        self.body = body
         self.sender = sender
         self.recipient = recipient
         self.smtp = smtp
+
+        self.init_smtp()
+
+    def init_smtp(self):
+
+        self.sender_email = self.sender.get("email", None)
+        self.recipient_email = self.recipient.get("email", None)
+
+        self.smtp_server = self.smtp.get("server_name", None)
+        self.smtp_port = self.smtp.get("port", None)
+        self.smtp_tls = self.smtp.get("tls", True)
+        self.smtp_auth_username = self.smtp.get("auth", {}).get("username", None)
+        self.smtp_auth_password = self.smtp.get("auth", {}).get("password", None)
 
         logging.debug("--------------------------------------------------")
         logging.debug(f" subject      : {self.subject}")
@@ -240,57 +260,115 @@ class SMTPManager:
         logging.debug(f" smtp         : {self.smtp}")
         logging.debug("--------------------------------------------------")
 
+        logging.debug("--------------------------------------------------")
+        logging.debug("sending email")
+        logging.debug(f"  - from       : {self.sender_email}")
+        logging.debug(f"  - to         : {self.recipient_email}")
+        logging.debug(f"  - subject    : {self.subject}")
+        logging.debug("  - body       :")
 
-    def body(self, mail_body):
-        self.body = mail_body
+        for line in self.body.splitlines():
+            logging.debug(f"     {line}")
 
-    def subject(self, mail_subject):
-        self.subject = mail_subject
+        logging.debug(f"  - smtp server: {self.smtp_server}:{self.smtp_port} {self.smtp_tls}")
+        logging.debug("--------------------------------------------------")
 
     def send_email(self):
         """
             Sendet die gespeicherten Logs per E-Mail.
         """
         import smtplib
+        import ssl
         from email.mime.text import MIMEText
 
-        email_body = self.log_memory_handler.get_logs()
-        subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
+        # email_body = self.log_memory_handler.get_logs()
+        # subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
+        #
+        # logging.debug("sending email")
+        # logging.debug(f"  - from   : {self.notification_sender}")
+        # logging.debug(f"  - to     : {self.notification_recipient}")
+        # logging.debug(f"  - subject: {subject}")
+        # logging.debug("  - body   :")
+        # for line in email_body.splitlines():
+        #     logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
 
-        logging.debug("sending email")
-        logging.debug(f"  - from   : {self.notification_sender}")
-        logging.debug(f"  - to     : {self.notification_recipient}")
-        logging.debug(f"  - subject: {subject}")
-        logging.debug("  - body   :")
-        for line in email_body.splitlines():
-            logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
-
-        if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
+        if self.smtp_server and self.sender_email and self.recipient_email:
             """
             """
-            msg = MIMEText(email_body)
-            msg["Subject"] = subject
-            msg["From"] = self.notification_sender
-            msg["To"] = self.notification_recipient
+            msg = MIMEText(self.body)
+            msg["Subject"] = self.subject
+            msg["From"] = self.sender_email
+            msg["To"] = self.recipient_email
+
+            if self.smtp_tls:
+                # Create a secure SSL context
+                context = ssl.create_default_context()
 
             try:
-                with smtplib.SMTP("smtp.example.com", 587) as server:
-                    server.starttls()
-                    server.login("deine@email.com", "dein_passwort")
-                    server.sendmail(
-                        self.notification_sender,
-                        self.notification_recipient,
-                        msg.as_string()
-                    )
+                server = smtplib.SMTP(host=self.smtp_server, port=int(self.smtp_port))
+                """
+                """
+                logging.debug("smtp connected")
+
+                server.set_debuglevel(2)
+                server.ehlo(name="boone-schulz.de")
+
+                if self.smtp_tls:
+                    logging.debug("smtp starttls")
+                    server.starttls(context=context)
+                    server.ehlo(name="boone-schulz.de")
+
+                if self.smtp_auth_username and self.smtp_auth_password:
+                    logging.debug("smtp auth")
+                    try:
+                        server.esmtp_features['auth'] = 'LOGIN PLAIN'
+                        server.login(self.smtp_auth_username, self.smtp_auth_password)
+                     except smtplib.SMTPHeloError as e:
+                        logging.error(f"smtplib.SMTPHeloError: {e}")
+                     except smtplib.SMTPAuthenticationError as e:
+                        logging.error(f"smtplib.SMTPAuthenticationError: {e}")
+                     except smtplib.SMTPNotSupportedError as e:
+                        logging.error(f"smtplib.SMTPNotSupportedError: {e}")
+                     except smtplib.SMTPException as e:
+                        logging.error(f"smtplib.SMTPException: {e}")
+
+                logging.debug("smtp sendmail")
+                server.sendmail(
+                    from_addr=self.sender_email,
+                    to_addrs=self.recipient_email,
+                    msg=msg.as_string()
+                )
+                server.quit()
+
                 logging.info("email was successfully sent.")
+
+            except smtplib.SMTPServerDisconnected :
+                logging.error("smtplib.SMTPServerDisconnected")
+            except smtplib.SMTPResponseException as e:
+                logging.error("smtplib.SMTPResponseException:")
+                logging.error(f"   {str(e.smtp_code)}  {str(e.smtp_error)}")
+            except smtplib.SMTPSenderRefused:
+                logging.error("smtplib.SMTPSenderRefused")
+            except smtplib.SMTPRecipientsRefused:
+                logging.error("smtplib.SMTPRecipientsRefused")
+            except smtplib.SMTPDataError:
+                logging.error("smtplib.SMTPDataError")
+            except smtplib.SMTPConnectError:
+                logging.error("smtplib.SMTPConnectError")
+            except smtplib.SMTPHeloError:
+                logging.error("smtplib.SMTPHeloError")
+            except smtplib.SMTPAuthenticationError:
+                logging.error("smtplib.SMTPAuthenticationError")
+
+
+            except socket.error as e:
+                logging.error("could not connect:")
+                logging.error(f"  {e}")
             except Exception as e:
                 logging.error("Fehler beim Senden der E-Mail:")
                 logging.error(f"  {e}")
         else:
             logging.error("missing smtp server_nemr, or sender, or recipient.")
-
-
-
 
 
 class RenewCertificates():
@@ -441,6 +519,7 @@ class RenewCertificates():
 
         self.restart_services()
 
+        self.send_log_email()
 
         logging.info("done ...\n")
 
@@ -479,27 +558,67 @@ class RenewCertificates():
                     "smtp", {}).get("server_name", None)
                 self.notification_smtp_port = notification.get(
                     "smtp", {}).get("port", 587)
+                self.notification_smtp_tls = notification.get(
+                    "smtp", {}).get("tls", True)
+                smtp_auth = notification.get("smtp", {}).get("auth", {})
+                self.notification_smtp_username = smtp_auth.get("username", None)
+                self.notification_smtp_password = smtp_auth.get("password", None)
+
                 self.notification_sender = notification.get("sender", None)
                 self.notification_recipient = notification.get(
                     "recipient", None)
 
 
-            restart_services = data.get("restart_services", [])
+
+
+            restart_services = data.get("restarts", [])
             if len(restart_services) > 0:
                 # TODO
-                self.restart_services = restart_services
+                self.restarts = restart_services
 
     def restart_services(self):
         """
         """
+        logging.debug("restart_services()")
         # TODO
         restart_dir = os.path.join(self.run_dir, "restarts")
+        restart_needed = False
+
+        logging.debug(f" services: {self.restarts}")
+
+        services = [x.get('service') for x in self.restarts]
 
         if os.path.exists(restart_dir):
-            for root, dirs, files in os.walk(restart_dir, topdown=False):
-                logging.debug(dirss)
-                logging.debug(files)
+            restart_needed = any(
+                _file.is_file()
+                for _file in os.scandir(restart_dir)
+            )
+        logging.debug(f" restart needed : {restart_needed}")
 
+        if restart_needed:
+            srv_manager = ServiceManager()
+
+            logging.debug(f" - {srv_manager.list_services()}")
+
+            matched_services = [s for s in services if f"{s}.service" in srv_manager.list_services()]
+            not_matched_services = ','.join([f"{s}.service" for s in services if f"{s}.service" not in srv_manager.list_services()])
+
+            logging.debug(f" - {matched_services}")
+
+            if len(matched_services) > 0:
+                for srv in services:
+                    state = srv_manager.get_status(srv)
+                    logging.debug(f" - {srv} : {state}")
+                    srv_manager.restart(srv)
+
+            else:
+                logging.error("A restart of services is necessary. But services are missing. A restart is not carried out.")
+                logging.error(f"The following services are not available: {not_matched_services}")
+
+        with os.scandir(restart_dir) as files:
+            for f in files:
+                if f.is_file():
+                    os.remove(f.path)
 
     def check_renew_certificates(self, domain):
         """
@@ -702,18 +821,8 @@ class RenewCertificates():
         email_body = self.log_memory_handler.get_logs()
         subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
 
-        logging.debug("sending email")
-        logging.debug(f"  - from   : {self.notification_sender}")
-        logging.debug(f"  - to     : {self.notification_recipient}")
-        logging.debug(f"  - subject: {subject}")
-        logging.debug("  - body   :")
-
-        for line in email_body.splitlines():
-            logging.debug(f"     {bcolors.FAIL}{line}{bcolors.ENDC}")
-
-
         smtp = SMTPManager(
-            logging=self.logging,
+            logging=logging,
             subject= f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}",
             sender=dict(
                 email=self.notification_sender
@@ -724,7 +833,8 @@ class RenewCertificates():
             smtp=dict(
                 server_name=self.notification_smtp_host,
                 port=self.notification_smtp_port,
-                login=dict(
+                tls=self.notification_smtp_tls,
+                auth=dict(
                     username=self.notification_smtp_username,
                     password=self.notification_smtp_password
                 )
@@ -732,7 +842,11 @@ class RenewCertificates():
             body=email_body
         )
 
+        if self.dry_run:
+            logging.info("send not email, we are in dry run ...")
+            return
 
+        smtp.send_email()
 
         # if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
         #     """

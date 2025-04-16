@@ -23,9 +23,12 @@ multi_certbot_tls_certificates:
 multi_certbot_notification:
   enabled: true
   smtp:
-    server_name: smtp.example.com
-    port: 587
-  sender: certbot@example.com
-  recipient: admin@foo.bar
+    server_name: "{{ vault__server_name | default('unknown-smtp.com') }}"
+    port: 465
+    auth:
+      username: "{{ vault__auth_username | default('smtptester@unknown-smtp.com') }}"
+      password: "{{ vault__auth_password | default('no-way!') }}"
+  sender:  "{{ vault__sender | default('sender@unknown-smtp.com') }}"
+  recipient:  "{{ vault__recipient | default('recipient@unknown-smtp.com') }}"
 
 ...

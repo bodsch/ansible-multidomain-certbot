@@ -24,13 +24,17 @@ notification:
   smtp:
     server_name: {{ multi_certbot_notification.smtp.server_name | default('') }}
     port: {{ multi_certbot_notification.smtp.port | default('') }}
+    tls: false
+    auth:
+      username: {{ multi_certbot_notification.smtp.auth.username | default('') }}
+      password: {{ multi_certbot_notification.smtp.auth.password | default('') }}
   sender: {{ multi_certbot_notification.sender | default('') }}
   recipient: {{ multi_certbot_notification.recipient | default('') }}
 {% endif %}
 
 {% if multi_certbot_restart_services | default([] ) | count > 0 %}
-restart_services:
+restarts:
   {% for service in multi_certbot_restart_services %}
-  - name: {{ service.get('name') }}
+  - service: {{ service.get('name') }}
   {% endfor %}
 {% endif %}
