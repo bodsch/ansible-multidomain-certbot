@@ -35,6 +35,6 @@ notification:
 {% if multi_certbot_restart_services | default([] ) | count > 0 %}
 restarts:
   {% for service in multi_certbot_restart_services %}
-  - service: {{ service.get('name') }}
+  - service: {{ service.get('service') }}
   {% endfor %}
 {% endif %}

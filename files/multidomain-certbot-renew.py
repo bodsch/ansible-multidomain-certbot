@@ -229,6 +229,7 @@ class DNSResolver:
 class SMTPManager:
     """
     """
+
     def __init__(self, logging, subject, sender={}, recipient={}, smtp={}, body=None):
         """
         """
@@ -323,13 +324,13 @@ class SMTPManager:
                     try:
                         server.esmtp_features['auth'] = 'LOGIN PLAIN'
                         server.login(self.smtp_auth_username, self.smtp_auth_password)
-                     except smtplib.SMTPHeloError as e:
+                    except smtplib.SMTPHeloError as e:
                         logging.error(f"smtplib.SMTPHeloError: {e}")
-                     except smtplib.SMTPAuthenticationError as e:
+                    except smtplib.SMTPAuthenticationError as e:
                         logging.error(f"smtplib.SMTPAuthenticationError: {e}")
-                     except smtplib.SMTPNotSupportedError as e:
+                    except smtplib.SMTPNotSupportedError as e:
                         logging.error(f"smtplib.SMTPNotSupportedError: {e}")
-                     except smtplib.SMTPException as e:
+                    except smtplib.SMTPException as e:
                         logging.error(f"smtplib.SMTPException: {e}")
 
                 logging.debug("smtp sendmail")
@@ -342,7 +343,7 @@ class SMTPManager:
 
                 logging.info("email was successfully sent.")
 
-            except smtplib.SMTPServerDisconnected :
+            except smtplib.SMTPServerDisconnected:
                 logging.error("smtplib.SMTPServerDisconnected")
             except smtplib.SMTPResponseException as e:
                 logging.error("smtplib.SMTPResponseException:")
@@ -359,7 +360,6 @@ class SMTPManager:
                 logging.error("smtplib.SMTPHeloError")
             except smtplib.SMTPAuthenticationError:
                 logging.error("smtplib.SMTPAuthenticationError")
-
 
             except socket.error as e:
                 logging.error("could not connect:")
@@ -494,6 +494,7 @@ class RenewCertificates():
 
         if self.args.list:
             self.print_current_certs()
+            return
 
         working_well_known = dict()
 
@@ -519,9 +520,9 @@ class RenewCertificates():
 
         self.restart_services()
 
-        self.send_log_email()
-
         logging.info("done ...\n")
+
+        self.send_log_email()
 
     def read_config(self):
         """
@@ -534,6 +535,9 @@ class RenewCertificates():
         self.config_rsa_key_size = 4096
 
         self.notification_enabled = False
+        self.notification_smtp_host = None
+        self.notification_sender = None
+        self.notification_recipient = None
 
         if os.path.isfile(self.args.config):
             with open(self.args.config, "r") as stream:
@@ -567,9 +571,6 @@ class RenewCertificates():
                 self.notification_sender = notification.get("sender", None)
                 self.notification_recipient = notification.get(
                     "recipient", None)
-
-
-
 
             restart_services = data.get("restarts", [])
             if len(restart_services) > 0:
@@ -815,15 +816,9 @@ class RenewCertificates():
             logging.error("missing smtp server_nemr, or sender, or recipient.")
             return
 
-        import smtplib
-        from email.mime.text import MIMEText
-
-        email_body = self.log_memory_handler.get_logs()
-        subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
-
         smtp = SMTPManager(
             logging=logging,
-            subject= f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}",
+            subject=f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}",
             sender=dict(
                 email=self.notification_sender
             ),
@@ -839,7 +834,7 @@ class RenewCertificates():
                     password=self.notification_smtp_password
                 )
             ),
-            body=email_body
+            body=self.log_memory_handler.get_logs()
         )
 
         if self.dry_run:
@@ -847,30 +842,6 @@ class RenewCertificates():
             return
 
         smtp.send_email()
-
-        # if self.notification_smtp_host and self.notification_sender and self.notification_recipient:
-        #     """
-        #     """
-        #     msg = MIMEText(email_body)
-        #     msg["Subject"] = subject
-        #     msg["From"] = self.notification_sender
-        #     msg["To"] = self.notification_recipient
-        #
-        #     try:
-        #         with smtplib.SMTP("smtp.example.com", 587) as server:
-        #             server.starttls()
-        #             server.login("deine@email.com", "dein_passwort")
-        #             server.sendmail(
-        #                 self.notification_sender,
-        #                 self.notification_recipient,
-        #                 msg.as_string()
-        #             )
-        #         logging.info("email was successfully sent.")
-        #     except Exception as e:
-        #         logging.error("Fehler beim Senden der E-Mail:")
-        #         logging.error(f"  {e}")
-        # else:
-        #     logging.error("missing smtp server_nemr, or sender, or recipient.")
 
     def _current_certificates(self):
         """
@@ -1101,7 +1072,6 @@ class RenewCertificates():
             return True
         else:
             return False
-
 
 
 def main():
