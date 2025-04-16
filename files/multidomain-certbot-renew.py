@@ -538,6 +538,7 @@ class RenewCertificates():
         self.notification_smtp_host = None
         self.notification_sender = None
         self.notification_recipient = None
+        self.restarts = []
 
         if os.path.isfile(self.args.config):
             with open(self.args.config, "r") as stream:

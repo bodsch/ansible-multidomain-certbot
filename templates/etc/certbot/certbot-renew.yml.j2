@@ -21,7 +21,7 @@ notification:
     server_name: {{ multi_certbot_notification.smtp.server_name | default('') }}
     port: {{ multi_certbot_notification.smtp.port | default('') }}
     tls: false
-  {% if multi_certbot_notification.smtp.auth | default({}) defined and
+  {% if multi_certbot_notification.smtp.auth | default({}) is defined and
         multi_certbot_notification.smtp.auth.username | default('') | string | length > 0 and
         multi_certbot_notification.smtp.auth.password | default('') | string | length > 0 %}
     auth:

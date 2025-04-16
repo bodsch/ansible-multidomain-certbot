@@ -38,19 +38,44 @@ ansible-galaxy collection install --requirements-file collections.yml
 ## usage
 
 ```yaml
-multi_certbot_conf_directory: /etc/letsencrypt
+multi_certbot_config:
+  conf_directory: /etc/letsencrypt
+  www_directory: /var/www/certbot
+  well_known_directory: /var/www/certbot/.well-known/acme-challenge
+  rsa_key_size: 4096
+  email: pki@test.com
+  expire_days_limit: 20
 
 multi_certbot_tls_certificates: []
 
-multi_certbot_staging_args:
-  - --test-cert
-  - --dry-run
 
-multi_certbot_email: "pki@test.com"
-multi_certbot_www_directory: /var/www/certbot
-multi_certbot_well_known_directory: "{{ multi_certbot_www_directory }}/.well-known/acme-challenge"
+multi_certbot_notification:
+  enabled: false
+  smtp:
+    server_name: localhost      # smtp.example.com
+    port: 25                    # 587
+    auth:
+      username: ""              #
+      password: ""              #
+  sender: ""                    # backup@example.com
+  recipient: ""                 # admin@foo.bar
 
-multi_certbot_rsa_key_size: 4096
+multi_certbot_test_cert: true
+multi_certbot_dry_run: true
+multi_certbot_auto_expand: false
+
+multi_certbot_systemd: {}
+#  use_timer: true
+#  service_name:
+#    timer: certbot.timer
+#    service: certbot.service
+
+multi_certbot_staging_args: []
+#  - --test-cert
+#  - --dry-run
+
+multi_certbot_restart_services: []
+#  - service: nginx
 ```
 
 ### `multi_certbot_tls_certificates`
@@ -70,12 +95,12 @@ multi_certbot_tls_certificates:
 
 ## certificate renew
 
-Alle vorliegenden Zertifikate werden über das Script `/usr/local/bin/certbot-renew.sh` erneuert.
+Alle vorliegenden Zertifikate werden über das Script `/usr/local/bin/certbot-renew.py` erneuert.
 
-Diese werden ausschließlich via *webroot* erneuert!
-Um das zu gewährleisten wird die Erreichbarkeit der Domain geprüft.
+Diese werden ausschließlich via *webroot* erneuert!  
+Um das zu gewährleisten wird die Erreichbarkeit der Domain geprüft.  
 Hierzu wird eine temporäre zufällige Datei im Verzeichniss `multi_certbot_well_known_directory` erstellt und diese
-anschließend über `curl` abgefragt.
+anschließend über abgefragt.
 
 Desweiteren wird geprüft, ob sämtliche konfigurierte Domains im Zertifikat verfügbar sind.
 
@@ -101,4 +126,3 @@ If you want to use something stable, please use a [Tagged Version](https://githu
 [Apache](LICENSE)
 
 **FREE SOFTWARE, HELL YEAH!**
-

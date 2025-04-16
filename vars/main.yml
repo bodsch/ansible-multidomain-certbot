@@ -1,7 +1,7 @@
 ---
 
 multi_certbot_requirements:
-  - bc
+  # - bc
   - python3-ruamel.yaml
   - python3-dnspython
   - python3-pydbus

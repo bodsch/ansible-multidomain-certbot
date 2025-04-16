@@ -3,6 +3,7 @@
 multi_certbot_config:
   conf_directory: /etc/letsencrypt
   www_directory: /var/www/certbot
+  well_known_directory: /var/www/certbot/.well-known/acme-challenge
   rsa_key_size: 4096
   email: pki@test.com
   expire_days_limit: 20
@@ -26,7 +27,9 @@ multi_certbot_notification:
   sender: ""                    # backup@example.com
   recipient: ""                 # admin@foo.bar
 
+multi_certbot_test_cert: true
 multi_certbot_dry_run: true
+multi_certbot_auto_expand: false
 
 multi_certbot_systemd: {}
 #  use_timer: true

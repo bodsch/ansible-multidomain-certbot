@@ -1,29 +1,23 @@
 ---
 
+multi_certbot_test_cert: true
+multi_certbot_dry_run: true
+multi_certbot_auto_expand: true
+multi_certbot_staging_args: []
+
 multi_certbot_tls_certificates:
   - domain: zweit-hirn.lan
     subdomains: www.zweit-hirn.lan
-  - domain: haus-der-schmerzen.lan
-    subdomains:
-      - anouk.haus-der-schmerzen.lan
-      - assets.haus-der-schmerzen.lan
-      - files.haus-der-schmerzen.lan
-      - www.haus-der-schmerzen.lan
+
   - domain: boone-schulz.lan
     subdomains:
       - arch.boone-schulz.lan
-      - cloud.boone-schulz.lan
-      - mirror.boone-schulz.lan
-      - office.boone-schulz.lan
-      - slides.boone-schulz.lan
-      - stage.boone-schulz.lan
-      - webmail.boone-schulz.lan
       - www.boone-schulz.lan
 
 multi_certbot_notification:
   enabled: true
   smtp:
-    server_name: "{{ vault__server_name | default('unknown-smtp.com') }}"
+    server_name: "{{ vault__server_name | default('localhost') }}"
     port: 465
     auth:
       username: "{{ vault__auth_username | default('smtptester@unknown-smtp.com') }}"
