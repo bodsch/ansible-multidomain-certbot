@@ -2,10 +2,10 @@
 
 multi_certbot_config:
   conf_directory: /etc/letsencrypt
-  rsa_key_size: 4096
   www_directory: /var/www/certbot
-  well_known_directory: /var/www/certbot/.well-known/acme-challenge
+  rsa_key_size: 4096
   email: pki@test.com
+  expire_days_limit: 20
 
 multi_certbot_tls_certificates: []
 #  - domain: foo.bar

@@ -551,7 +551,7 @@ class RenewCertificates():
             self.config_acme_dir = data.get('certbot', {}).get('acme_dir', "/var/www/certbot")
             self.config_expire_days_limit = data.get('certbot', {}).get('expire_days_limit', 20)
             self.config_rsa_key_size = data.get('certbot', {}).get('rsa_key_size', 4096)
-            self.config_email = data.get('certbot', {}).get('email', 4096)
+            self.config_email = data.get('certbot', {}).get('email', 'pki@test.com')
 
             notification = data.get("notification", {})
 
