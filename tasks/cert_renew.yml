@@ -6,7 +6,7 @@
     dest: /bin/multidomain-certbot-renew.py
     mode: 0750
 
-- name: create certbot-renew.rc
+- name: create certbot renew.yml
   ansible.builtin.template:
     src: etc/certbot/certbot-renew.yml.j2
     dest: /etc/certbot/renew.yml
