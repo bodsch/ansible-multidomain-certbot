@@ -7,16 +7,14 @@ import sys
 import time
 import json
 import yaml
-# import configparser
 import argparse
 import logging
 import datetime
 import subprocess
-# import pty
 import socket
 from dns.resolver import Resolver
 import dns.exception
-from pydbus import SystemBus
+import dbus
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -60,52 +58,64 @@ class MemoryLogHandler(logging.Handler):
 
 
 class ServiceManager:
-    def __init__(self):
+    def __init__(self, logging):
+        self.logging = logging
         self.init_system = self.detect_init_system()
 
     def detect_init_system(self):
+        """
+        """
+        _init_system = "unknown"
+
         if os.path.isdir("/run/systemd/system"):
-            return "systemd"
+            _init_system = "systemd"
         try:
             result = subprocess.run(["rc-status"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if result.returncode == 0:
-                return "openrc"
+                _init_system = "openrc"
         except FileNotFoundError:
             pass
-        return "unknown"
+
+        logging.debug(f"detected init system: {_init_system}")
+
+        return _init_system
 
     def restart_service(self, service_name):
-        return self._exec("restart", service_name)
+        return self._exec("Restart", service_name)
 
     def start_service(self, service_name):
-        return self._exec("start", service_name)
+        return self._exec("Start", service_name)
 
     def stop_service(self, service_name):
-        return self._exec("stop", service_name)
+        return self._exec("Stop", service_name)
 
     def get_status(self, service_name):
         if self.init_system == "systemd":
             try:
-                bus = SystemBus()
-                systemd = bus.get(".systemd1")
-                unit_path = systemd.LoadUnit(service_name)
-                service = bus.get(".systemd1", unit_path)
-                status = {
-                    "ActiveState": service.ActiveState,
-                    "SubState": service.SubState
+                full_name = self._systemd_unit_name(service_name)
+                bus = dbus.SystemBus()
+                systemd = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')
+                manager = dbus.Interface(systemd, 'org.freedesktop.systemd1.Manager')
+                unit_path = manager.LoadUnit(full_name)
+                unit = bus.get_object('org.freedesktop.systemd1', unit_path)
+                props = dbus.Interface(unit, dbus.PROPERTIES_IFACE)
+                return {
+                    "ActiveState": str(props.Get("org.freedesktop.systemd1.Unit", "ActiveState")),
+                    "SubState": str(props.Get("org.freedesktop.systemd1.Unit", "SubState")),
+                    "error": False
                 }
-                return status
             except Exception as e:
                 return {
                     "stderr": str(e),
                     "error": True
                 }
+
         elif self.init_system == "openrc":
             try:
                 cmd = ["rc-service", service_name, "status"]
                 result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 return {
-                    "error": True,
+                    "error": result.returncode != 0,
                     "stdout": result.stdout.strip(),
                     "stderr": result.stderr.strip(),
                     "code": result.returncode
@@ -118,48 +128,59 @@ class ServiceManager:
     def list_services(self):
         if self.init_system == "systemd":
             try:
-                cmd = ["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend"]
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
-                services = [line.split()[0] for line in result.stdout.strip().split("\n") if line]
+                cmd = ["systemctl", "list-units", "--type=service", "--no-pager", "--no-legend" ]
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE, text=True)
+                services = [line.split()[0].removesuffix('.service') for line in result.stdout.strip().split("\n") if line]
                 return services
             except Exception as e:
                 return [f"Fehler: {e}"]
+
         elif self.init_system == "openrc":
             try:
-                cmd = ["rc-status", "--servicelist"]
-                result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+                result = subprocess.run(["rc-status", "--servicelist"], stdout=subprocess.PIPE, text=True)
                 services = [line.strip() for line in result.stdout.strip().split("\n") if line]
                 return services
             except Exception as e:
                 return [f"Fehler: {e}"]
+
         else:
             return ["Init system not supported"]
 
     def _exec(self, action, service_name):
         if self.init_system == "systemd":
             try:
-                bus = SystemBus()
-                systemd = bus.get(".systemd1")
-                unit_path = systemd.LoadUnit(service_name)
-                service = bus.get(".systemd1", unit_path)
-                getattr(service, action.capitalize())("replace")
-                print(f"{service_name} wurde erfolgreich per systemd {action}ed.")
+                full_name = self._systemd_unit_name(service_name)
+                bus = dbus.SystemBus()
+                systemd = bus.get_object('org.freedesktop.systemd1', '/org/freedesktop/systemd1')
+                manager = dbus.Interface(systemd, 'org.freedesktop.systemd1.Manager')
+                unit_path = manager.LoadUnit(full_name)
+                unit = bus.get_object('org.freedesktop.systemd1', unit_path)
+                interface = dbus.Interface(unit, 'org.freedesktop.systemd1.Unit')
+                getattr(interface, action)("replace")
+                logging.info(f"{service_name} wurde erfolgreich {action.lower()}ed.")
             except Exception as e:
-                print(f"Fehler bei systemd {action}: {e}")
+                logging.error(f"Fehler bei systemd {action.lower()}: {e}")
         elif self.init_system == "openrc":
             try:
-                subprocess.run(["rc-service", service_name, action], check=True)
-                print(f"{service_name} wurde erfolgreich per OpenRC {action}ed.")
+                subprocess.run(["rc-service", service_name, action.lower()], check=True)
+                logging.info(f"{service_name} wurde erfolgreich {action.lower()}ed.")
             except subprocess.CalledProcessError as e:
-                print(f"Fehler bei OpenRC {action}: {e}")
+                logging.error(f"Fehler bei OpenRC {action.lower()}: {e}")
         else:
-            print("Init-System nicht unterstützt.")
+            logging.error("Init-System nicht unterstützt.")
+
+    def _systemd_unit_name(self, service_name):
+        """Fügt .service an, falls nicht vorhanden"""
+        return service_name if service_name.endswith(".service") else service_name + ".service"
 
 
 class DNSResolver:
     """
     """
-    def dns_lookup(dns_name, timeout=3, dns_resolvers=[]):
+
+    def dns_lookup(self, dns_name, timeout=3, dns_resolvers=[]):
         """
           Perform a simple DNS lookup, return results in a dictionary
         """
@@ -279,8 +300,19 @@ class SMTPManager:
             Sendet die gespeicherten Logs per E-Mail.
         """
         import smtplib
-        import ssl
+        from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
+        from ansi2html import Ansi2HTMLConverter
+
+        # konvertiere Escpae Sequencen zu html tags
+        conv = Ansi2HTMLConverter(inline=True)
+        html_text = conv.convert(self.body, full=False)
+
+        # Multipart-Mail vorbereiten(plain + html)
+        msg = MIMEMultipart("alternative")
+
+        part1 = MIMEText(self.remove_ansi_escape_sequences(self.body), "plain")
+        part2 = MIMEText(html_text, "html")
 
         # email_body = self.log_memory_handler.get_logs()
         # subject = f"renew TLS certificates at {socket.getfqdn()} - {self.datetime_readable}"
@@ -296,14 +328,14 @@ class SMTPManager:
         if self.smtp_server and self.sender_email and self.recipient_email:
             """
             """
-            msg = MIMEText(self.body)
+            # msg = MIMEText(self.(remove_ansi_escape_sequences(self.body))
+
+            msg.attach(part1)
+            msg.attach(part2)
+
             msg["Subject"] = self.subject
             msg["From"] = self.sender_email
             msg["To"] = self.recipient_email
-
-            if self.smtp_tls:
-                # Create a secure SSL context
-                context = ssl.create_default_context()
 
             try:
                 server = smtplib.SMTP(host=self.smtp_server, port=int(self.smtp_port))
@@ -311,7 +343,7 @@ class SMTPManager:
                 """
                 logging.debug("smtp connected")
 
-                server.set_debuglevel(2)
+                # server.set_debuglevel(2)
                 server.ehlo(name="boone-schulz.de")
 
                 if self.smtp_tls:
@@ -370,6 +402,11 @@ class SMTPManager:
         else:
             logging.error("missing smtp server_nemr, or sender, or recipient.")
 
+    def remove_ansi_escape_sequences(self, text):
+        import re
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text)
+
 
 class RenewCertificates():
     """
@@ -387,6 +424,7 @@ class RenewCertificates():
 
         self.dry_run = self.args.dry_run
         self.verbose = self.args.verbose
+        self.force_restarts = self.args.force_restarts
 
         self.log_file = "/var/log/certbot-renew.log"
         self.run_dir = "/run/multidomain-certbot"
@@ -426,6 +464,12 @@ class RenewCertificates():
             required=False,
             action='store_true',
             help="do nothing")
+
+        p.add_argument(
+            "--force-restarts",
+            required=False,
+            action='store_true',
+            help="force servie restarts.")
 
         p.add_argument(
             "--verbose",
@@ -597,13 +641,17 @@ class RenewCertificates():
             )
         logging.debug(f" restart needed : {restart_needed}")
 
+        if self.force_restarts:
+            logging.debug(f" force restart enabled")
+            restart_needed = True
+
         if restart_needed:
-            srv_manager = ServiceManager()
+            srv_manager = ServiceManager(logging)
 
             logging.debug(f" - {srv_manager.list_services()}")
 
-            matched_services = [s for s in services if f"{s}.service" in srv_manager.list_services()]
-            not_matched_services = ','.join([f"{s}.service" for s in services if f"{s}.service" not in srv_manager.list_services()])
+            matched_services = [s for s in services if s in srv_manager.list_services()]
+            not_matched_services = ','.join([s for s in services if s not in srv_manager.list_services()])
 
             logging.debug(f" - {matched_services}")
 
@@ -611,7 +659,7 @@ class RenewCertificates():
                 for srv in services:
                     state = srv_manager.get_status(srv)
                     logging.debug(f" - {srv} : {state}")
-                    srv_manager.restart(srv)
+                    srv_manager.restart_service(srv)
 
             else:
                 logging.error("A restart of services is necessary. But services are missing. A restart is not carried out.")

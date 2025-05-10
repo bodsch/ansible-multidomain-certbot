@@ -5,7 +5,8 @@ multi_certbot_requirements:
   # - bc
   # - python-jinja
   - python-dnspython
-  - python-pydbus
+  - python-dbus
+  - python-ansi2html
 
 multi_certbot_system:
   user: http

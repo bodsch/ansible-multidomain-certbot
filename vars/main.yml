@@ -4,7 +4,7 @@ multi_certbot_requirements:
   # - bc
   - python3-ruamel.yaml
   - python3-dnspython
-  - python3-pydbus
+  - python3-dbus
 
 multi_certbot_system:
   user: www-data
